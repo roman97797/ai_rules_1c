@@ -4,7 +4,7 @@ Comprehensive database management: registry (.v8-project.json) and platform oper
 
 ## Integration with configuration synchronization
 
-Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates full / partial / Git load, checks and database apply; `/deploy-and-test` inherits that deployment sequence.
+Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates full / Git load, checks and database apply. Its `partial` mode loads and checks, then stops without database apply. `/deploy-and-test` inherits the deployment sequence of the mode it runs.
 
 These scripts implement individual stages. When a database update is already requested, continue from a successful load through the required checks to `db-update`; do not stop to offer the already requested next stage. Keep load and apply separate (omit loader `-UpdateDB`) when the orchestrator must run extension applicability checks between them. Use one executor per stage and the same infobase, extension and source root throughout.
 
@@ -232,7 +232,7 @@ Launches 1C in background — control returns immediately.
 powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-update.ps1 -InfoBasePath "C:\Bases\MyDB" -UserName "Admin"
 ```
 
-Applies main configuration changes to the database configuration (`/UpdateDBCfg`). Required step after `db-load-cf`, `db-load-xml`, `db-load-git`.
+Applies main configuration changes to the database configuration (`/UpdateDBCfg`). Required step after `db-load-cf`, `db-load-xml` and `db-load-git` when the caller is `/update1cbase` in `full`, `git` or `all`, or another procedure that asked for the database update. `/update1cbase partial` does not call this step.
 
 | Extra Parameter | Description |
 |-----------------|-------------|

@@ -203,7 +203,7 @@ git clone https://github.com/comol/ai_rules_1c.git $env:TEMP\1c-rules
 ├── content/
 │   ├── rules/               # on-demand правила, подключаемые по задаче
 │   ├── agents/              # описания 13 специализированных субагентов
-│   ├── commands/            # слэш-команды (doctor, deploy-and-test, initproject, restore-testbase, test-fix-loop, build-release, economymode, sdlc, litemode, previewmode, caveman, rulesmodel, evolve, getconfigfiles, loadfrom1cbase, update1cbase, checkmcp, setupmcp, installtools, installmcp, install-cognee, install-openviking, install-edt-mcp, install-atlassian-mcp, updatemcp, updaterules, checkupdates, support, supportstatus, check-uuid, install-agent-browser, install-windows-mcp, install-rtk, install-officecli)
+│   ├── commands/            # слэш-команды (doctor, deploy-and-test, initproject, restore-testbase, test-fix-loop, build-release, economymode, sdlc, litemode, previewmode, caveman, rulesmodel, evolve, getconfigfiles, loadfrom1cbase, update1cbase, checkmcp, setupmcp, installtools, installmcp, install-cognee, install-openviking, install-edt-mcp, install-atlassian-mcp, updatemcp, updaterules, checkupdates, support, supportstatus, check-uuid, install-agent-browser, install-windows-mcp, install-rtk, install-officecli, changed-objects, changed-objects-grouped)
 │   ├── skills/              # SKILL-пакеты (1c-metadata-manage, mermaid-diagrams и др.)
 │   ├── openspec-bundle/     # снапшот вывода `openspec init` для каждого инструмента
 │   └── mcp-servers.json     # каталог MCP-серверов экосистемы 1С

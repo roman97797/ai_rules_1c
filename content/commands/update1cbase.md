@@ -1,13 +1,13 @@
 ---
-description: Load current repository files into the infobase defined in .dev.env and update the DB structure
+description: "Load current repository files into the infobase defined in .dev.env. full, git and all also update the DB structure; partial loads files only and does not update the database"
 argumentHint: "[full|partial|git|all]"
 ---
 
 # /update1cbase — load repository into an infobase
 
-Load the configuration (`/LoadConfigFromFiles`) from the current repository directory into the infobase defined in `.dev.env`, then update the database structure (`/UpdateDBCfg`). With the `all` argument (or an explicit "with extensions" request) the command loads the **full snapshot** — main configuration plus every extension from `EXTENSION_NAMES` — see "Full-snapshot mode" at the end.
+Load the configuration (`/LoadConfigFromFiles`) from the current repository directory into the infobase defined in `.dev.env`. Modes `full`, `git` and `all` then update the database structure (`/UpdateDBCfg`). Mode `partial` loads the selected files and stops: do not run `/UpdateDBCfg`, `infobase config apply`, wrapper `-UpdateDB` or Step 3. The user updates the database configuration. With the `all` argument (or an explicit "with extensions" request) the command loads the **full snapshot** — main configuration plus every extension from `EXTENSION_NAMES` — see "Full-snapshot mode" at the end.
 
-Read `content/rules/getconfigfiles.md → Configuration file synchronization contract`. A partial load is a first-class branch of this update procedure: **load → checks → database apply → requested directory refresh**. Do not stop after importing files or merely offer the database update when the user has already requested it.
+Read `content/rules/getconfigfiles.md → Configuration file synchronization contract`. A partial load is **load → checks**, then stop before database apply. Do not offer the update and do not run it because a later step of this file still describes Step 3 for the other modes. `-updateConfigDumpInfo` stays on the load: it updates the dump baseline, not the database configuration.
 
 **Target before mode:** follow `content/rules/extension-workspace.md`. Select the current project, exact main/extension target and its source root before selecting `full` / `partial` / `git`. Substitute the resolved pass values in the templates below and carry them through load, checks, apply and any return dump. Do not change `EXTENSION_NAME` or redirect `EXPORT_PATH` in settings to select another extension. A Git diff spanning several roots must be split and validated per target; never feed its combined list into one extension load.
 
@@ -20,7 +20,7 @@ Read `content/rules/getconfigfiles.md → Configuration file synchronization con
 
 Partial loads target the main configuration or **one named extension per pass**. Do not combine partial selection with `all` / platform `-AllExtensions`. Keep repository locks, support rules, validation and retry handling at the same strength as a full load.
 
-This command does not run tests and does not publish the infobase. Use `/deploy-and-test` to run tests after loading. When the update serves a development task, the task's behavioural confirmation follows on the updated base as the effective `UI_TESTING` allows (`essential` by default); a test client started before the update is stale (`content/rules/qa-testclient.md`).
+This command does not run tests and does not publish the infobase. Use `/deploy-and-test` to run tests after loading. When `full`, `git` or `all` updates the database for a development task, the task's behavioural confirmation follows on the updated base as the effective `UI_TESTING` allows (`essential` by default); a test client started before that update is stale (`content/rules/qa-testclient.md`). Partial mode does not update the database, so it does not refresh a running client.
 
 ## Step 0. Check `.dev.env` parameters
 
@@ -52,7 +52,7 @@ Before running, resolve the source directory for the selected main configuration
 
 `ibcmd infobase config` does not apply to 1C cluster infobases; for server cluster infobases always use Designer.
 
-For partial / Git loads, use the bundled `db-load-xml -Mode Partial -Files ...` / `-ListFile ...` or `db-load-git` after its plan, or the Designer template below. The `ibcmd` full-import template is not a partial-import substitute: use its verified `config import files` path in the skill only when suitable. Keep one load owner; do not execute the wrapper and raw template for the same load. In this procedure omit wrapper `-UpdateDB`: apply is a separate stage so extension checks can run first.
+For partial / Git loads, use the bundled `db-load-xml -Mode Partial -Files ...` / `-ListFile ...` or `db-load-git` after its plan, or the Designer template below. The `ibcmd` full-import template is not a partial-import substitute: use its verified `config import files` path in the skill only when suitable. Keep one load owner; do not execute the wrapper and raw template for the same load. Never pass wrapper `-UpdateDB`. For `full`, `git` and `all`, apply stays a separate Step 3 so extension checks can run first. For `partial`, Step 3 is not run.
 
 ## Step 2a. Load configuration through `ibcmd` (preferred)
 
@@ -118,7 +118,7 @@ For **partial** mode, insert one of the following selector fragments after `/Loa
 -files "CommonModules/РаботаСДанными/Ext/Module.bsl" -Format Hierarchical
 ```
 
-Use only one fragment, resolve its real paths and use `Plain` for a flat dump. For loading only supplied pieces of an object's description, add `-partial` only after confirming support in the target platform help (the bundled partial-load tools already add it). Keep `-updateConfigDumpInfo` in full and partial Designer loads. It updates the version baseline, not the database configuration. After a clean partial load, continue to Step 2c when applicable and then Step 3b; never report the update complete at this point.
+Use only one fragment, resolve its real paths and use `Plain` for a flat dump. For loading only supplied pieces of an object's description, add `-partial` only after confirming support in the target platform help (the bundled partial-load tools already add it). Keep `-updateConfigDumpInfo` in full and partial Designer loads. It updates the version baseline, not the database configuration. After a clean partial load, run Step 2c only when an extension was loaded, then stop. Do not run Step 3a or Step 3b. Report the load result and state that the database configuration was not updated.
 
 Read the verdict (`{RESULT_PATH}`, exit code, `{LOG_PATH}` — see the retry loop below). On errors, show the relevant log fragment to the user and **do not continue** to Step 3b.
 
@@ -178,7 +178,7 @@ if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force }   # 10 min �
 
 Kill **only the PID started by this command**. Never blanket-kill `Get-Process 1cv8 | Stop-Process` — that would take down the user's own open Designer or client sessions. If the lock persists after your process is confirmed dead, the lock is foreign: report it and ask the user instead of killing anything else.
 
-**3. Fix before retry.** Re-running against unchanged sources is forbidden (same no-change-repeat rule as for validators). Read the exact error from the log, fix its cause first — source XML/BSL defects are fixed through the `1c-metadata-manage` skill / normal code editing and re-validated (`verify_xml` / `syntaxcheck`) before the next attempt; parameter/connection errors are fixed in `.dev.env` or the command line. After a failed **load**, restart from Step 2 (load), not from Step 3 — the half-loaded state is not trustworthy; after a clean load with a failed **update**, retrying Step 3 alone is fine.
+**3. Fix before retry.** Re-running against unchanged sources is forbidden (same no-change-repeat rule as for validators). Read the exact error from the log, fix its cause first — source XML/BSL defects are fixed through the `1c-metadata-manage` skill / normal code editing and re-validated (`verify_xml` / `syntaxcheck`) before the next attempt; parameter/connection errors are fixed in `.dev.env` or the command line. After a failed **load**, restart from Step 2 (load), not from Step 3 — the half-loaded state is not trustworthy; after a clean load with a failed **update** in `full`, `git` or `all`, retrying Step 3 alone is fine. Partial mode has no Step 3 retry: a clean partial load is finished without a database update.
 
 **4. Bounded budget — 3 full attempts.** If the third attempt still fails, stop: report the last log fragment, what was fixed between attempts, and the remaining error. Do not loop further and do not present a failed update as done.
 
@@ -199,4 +199,4 @@ Loads the **effective snapshot**: main configuration + every extension from `EXT
 
 If the task also requests refreshing the source directory after the update, first complete all required apply stages, then follow `/loadfrom1cbase` with the same targets and appropriate scopes. Do not overwrite local changes or perform an unconditional full return dump. Without a requested refresh, no extra dump is required; report any baseline not maintained by the selected load tool before the next incremental export.
 
-Briefly report the infobase, main configuration / extension, source directory, load scope (full / selected files / Git diff), tool, checks, apply result and any directory refresh separately. Include retry attempts, fixes and dynamic update / restructuring from the log. In full-snapshot mode, list every pass. A successful load with failed apply, or successful apply with failed return export, remains a partially completed workflow; list errors explicitly.
+Briefly report the infobase, main configuration / extension, source directory, load scope (full / selected files / Git diff), tool, checks, apply result and any directory refresh separately. For `partial`, the apply result is `not run`: the database configuration was left unchanged. Include retry attempts, fixes and dynamic update / restructuring from the log. In full-snapshot mode, list every pass. A successful load with failed apply, or successful apply with failed return export, remains a partially completed workflow; list errors explicitly. A partial load that skipped Step 3 is complete for this command.

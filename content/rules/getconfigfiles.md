@@ -8,7 +8,7 @@ category: workflow
 
 ## Configuration file synchronization contract
 
-`/loadfrom1cbase` owns **infobase → source directory**; `/getconfigfiles` is its selected-object export procedure. `/update1cbase` owns **source directory → configuration → database configuration**; `/deploy-and-test` inherits that sequence. These are stages of one workflow, with the same infobase, main configuration or named extension, source directory and format throughout a pass.
+`/loadfrom1cbase` owns **infobase → source directory**; `/getconfigfiles` is its selected-object export procedure. `/update1cbase` owns **source directory → configuration**, and for `full`, `git` and `all` also **→ database configuration**. Its `partial` mode does not update the database. `/deploy-and-test` inherits the sequence of the mode it runs. These are stages of one workflow, with the same infobase, main configuration or named extension, source directory and format throughout a pass.
 
 Resolve the current project and exact target through `content/rules/extension-workspace.md` before transfer. In the templates below, `EXPORT_PATH` and `EXTENSION_NAME` are the resolved source-root/extension values for that pass, not an instruction to rewrite settings. Metadata discovery for the selection uses that same project's verified MCP scope and extension layer (`content/rules/multi-contour-search.md`); identical object names in another project or the base do not establish the extension's export list.
 
@@ -39,7 +39,7 @@ Add required parent descriptors / registrations for new objects and dependencies
 
 1. Refresh source from the infobase only when that direction is required: full, changes or selected objects. Check the export result before editing.
 2. Edit and validate the intended XML / BSL. Build the import list from actual changed files and the required dependencies, not from `repoobjects.txt` or an unexamined change report.
-3. Follow `/update1cbase`: load the selected files or full snapshot, inspect the result, run the applicable checks (extension applicability before apply), then update the database configuration. A successful load alone is not a successful database update.
+3. Follow `/update1cbase`: load the selected files or full snapshot, inspect the result, and run the applicable checks (extension applicability before apply). Modes `full`, `git` and `all` then update the database configuration. Mode `partial` stops after the load and those checks; do not run the database update. A successful partial load is not a database update. For the modes that do apply, a successful load alone is not a successful database update either.
 4. After successful apply, a requested directory refresh uses `/loadfrom1cbase` with the same target and an appropriate scope. Protect local edits even during this return pass. If no refresh is needed, retain the load's updated version file; do not run `UpdateInfo` to hide a failed load / apply or claim that unrelated files are synchronized.
 5. Report load, checks, database update and any export separately. On failure stop the dependent stages; retain logs and the last trustworthy baseline. A version file alone does not prove that database apply succeeded.
 

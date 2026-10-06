@@ -13,4 +13,4 @@ Quick facts (details and templates — in the rule):
 - The `ibcmd` path requires both `{PLATFORM_PATH}\bin\ibcmd.exe` and a filled `IBCMD_CONFIG`; clustered server infobases always use Designer.
 - Inspect `{LOG_PATH}` for errors before starting any edits.
 - **EDT projects** (`.dev.env` `USE_EDT=true`): the export is a Designer XML dump. If the working tree is an EDT (`src/**/*.mdo`) workspace, export to a separate directory and never mix the two trees — `content/rules/edt-workflow.md`.
-- `/loadfrom1cbase partial` delegates its selected-object refresh here and retains the dirty-directory guard. After editing, `/update1cbase partial` loads a separate list of **file paths**, runs checks, then updates the database. Never reuse `repoobjects.txt` as the load list; follow the rule's synchronization contract.
+- `/loadfrom1cbase partial` delegates its selected-object refresh here and retains the dirty-directory guard. After editing, `/update1cbase partial` loads a separate list of **file paths** and runs checks. It does not update the database configuration. Never reuse `repoobjects.txt` as the load list; follow the rule's synchronization contract.
