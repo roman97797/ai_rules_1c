@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 $manifest = Get-Content '.ai-rules.json' -Raw | ConvertFrom-Json
-$repo = 'comol/ai_rules_1c'
+$repo = 'roman97797/ai_rules_1c'
 
 $head = (git ls-remote "https://github.com/$repo" HEAD) -split '\s+' | Select-Object -First 1
 $since = [Uri]::EscapeDataString($manifest.updatedAt)

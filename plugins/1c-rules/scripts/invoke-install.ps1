@@ -33,7 +33,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$script:DefaultSourceUrl = 'https://github.com/comol/ai_rules_1c.git'
+$script:DefaultSourceUrl = 'https://github.com/roman97797/ai_rules_1c.git'
 
 function Get-NormalizedPath {
     param([string]$Path)

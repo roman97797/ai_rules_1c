@@ -32,7 +32,7 @@ The same rule applies to the PowerShell fallback: `install.ps1` requires being r
 ### Defaults — no questions when the answer is obvious
 
 - **Channel** — agent-driven by default. Do not ask the user to choose between the agent and PowerShell channels. If you cannot perform filesystem operations, fall back to PowerShell silently.
-- **Source** — local clone of `1c-rules` if the user pointed at one; otherwise `https://github.com/comol/ai_rules_1c` (default).
+- **Source** — local clone of `1c-rules` if the user pointed at one; otherwise `https://github.com/roman97797/ai_rules_1c` (default).
 - **Active tools** — auto-detect from the project. A tool is "active" if its `detection:` block in `adapters/<tool>.yaml` matches (e.g. `.cursor/` for Cursor, `CLAUDE.md` or `.claude/` for Claude Code, `.kimi-code/` for Kimi Code CLI, etc.).
   - **Exactly one tool detected** — proceed silently with that tool. Do not ask.
   - **Zero tools detected** — ask once: "No AI tool directory detected. Which tools should I install for? (`cursor`, `claude-code`, `codex`, `opencode`, `kilocode`, `kimi`, `qwen`, `command-code`, `cline`, `zcode`, `mimocode`, `pi`, `other`)". The `other` option is a universal fallback for any AI client that is not in the explicit list — it places `AGENTS.md` at the project root and writes on-demand rules / agents / commands / skills / MCP config under `.ai-agent/` in a portable, tool-agnostic layout.
@@ -46,7 +46,7 @@ The agent SHOULD NOT read the body of every rule/agent/command/skill file before
 
 Use this lean sequence:
 
-1. **Resolve the source.** If only a URL was given, clone it locally (`git clone https://github.com/comol/ai_rules_1c.git <cache-dir>/1c-rules`) or reuse an existing clone.
+1. **Resolve the source.** If only a URL was given, clone it locally (`git clone https://github.com/roman97797/ai_rules_1c.git <cache-dir>/1c-rules`) or reuse an existing clone.
 
 2. **Read adapters only.** For each active tool open `adapters/<tool>.yaml` from the clone. These files are small and define, in a closed schema:
    - `detection` — how to confirm the tool is active.
@@ -330,7 +330,7 @@ If a target file already exists with user modifications (different from any prio
 If the agent cannot do the placement (no FS access, restricted environment, CI run), use the PowerShell channel:
 
 ```powershell
-git clone https://github.com/comol/ai_rules_1c.git $env:TEMP\1c-rules
+git clone https://github.com/roman97797/ai_rules_1c.git $env:TEMP\1c-rules
 & $env:TEMP\1c-rules\install.ps1 init -Source $env:TEMP\1c-rules
 ```
 
@@ -357,15 +357,15 @@ This is an **explicit recovery path**, not a routine post-install test. Use it o
 
 ```powershell
 # WRONG — will throw "Unexpected attribute 'CmdletBinding'"
-iex (irm https://raw.githubusercontent.com/comol/ai_rules_1c/main/install.ps1)
-iex "$(irm https://raw.githubusercontent.com/comol/ai_rules_1c/main/install.ps1) init"
+iex (irm https://raw.githubusercontent.com/roman97797/ai_rules_1c/main/install.ps1)
+iex "$(irm https://raw.githubusercontent.com/roman97797/ai_rules_1c/main/install.ps1) init"
 ```
 
 Always run the script as a local file. If a no-`git` environment forces a one-liner, use a script block — it preserves `param(...)` semantics — but the script still needs a resolvable `-Source` value:
 
 ```powershell
 $tmp = Join-Path $env:TEMP '1c-rules'
-git clone https://github.com/comol/ai_rules_1c.git $tmp
+git clone https://github.com/roman97797/ai_rules_1c.git $tmp
 & ([scriptblock]::Create((Get-Content "$tmp\install.ps1" -Raw))) init -Source $tmp
 ```
 
