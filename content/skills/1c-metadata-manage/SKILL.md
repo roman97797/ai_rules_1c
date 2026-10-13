@@ -32,55 +32,13 @@ The same convention applies to `docs/*.md` references like `skills/1c-metadata-m
 
 XML saving in `form-edit`, `form-add`, `remove-form`, `form-compile` registration, `meta-edit`, `cf-edit`, `cfe-borrow` registration/merge, `skd-edit`, `subsystem-edit`, `subsystem-compile` registration, `interface-edit`, `add-template` and `add-help` retains the input CRLF/LF style and uses Configurator's compact empty tags (`<Tag/>`). Formatting-only changes should not be repaired by a global replacement that can alter literal XML in comments or CDATA.
 
-Each tool of this skill ships as a PowerShell script (`*.ps1`). Some tools additionally ship a **Python entry point** (`*.py`) next to it, with the same parameter names and the same contract:
-
-**Nine commands have a Python entry point today.** These are the only shipped Python commands; `tools/_common/dev_env.py` and `tools/1c-web-ops/scripts/web_common.py` are shared helpers. No tool outside this table may be assumed to work on Linux.
-
-| Tool directory | PowerShell | Python | Notes |
-|---|---|---|---|
-| `1c-form-scaffold/scripts/` | `form-add.ps1` | `form-add.py` | creates a managed form (scalar registration + descriptor + `Ext/Form.xml` + module) |
-| `1c-form-scaffold/scripts/` | `remove-form.ps1` | `remove-form.py` | `-DryRun` first, a real deletion needs `-Force` |
-| `1c-form-compile/scripts/` | `form-compile.ps1` | `form-compile.py` | form DSL → `Form.xml` |
-| `1c-meta-edit/scripts/` | `meta-edit.ps1` | `meta-edit.py` | `add-form` is refused in both runtimes — use `form-add` |
-| `1c-meta-validate/scripts/` | `meta-validate.ps1` | `meta-validate.py` | also the mandatory post-edit check `meta-edit` runs |
-| `1c-web-ops/scripts/` | `web-publish.ps1` | `web-publish.py` | local Apache publication; Python requires a preinstalled compatible Apache and 1C web extension |
-| `1c-web-ops/scripts/` | `web-info.ps1` | `web-info.py` | publication and managed-process status |
-| `1c-web-ops/scripts/` | `web-stop.ps1` | `web-stop.py` | stops only a verified Python-managed Apache process |
-| `1c-web-ops/scripts/` | `web-unpublish.ps1` | `web-unpublish.py` | `-DryRun` first, `-Force` for removal; scoped publications only |
-| **every other tool under `tools/`** | `*.ps1` | **none** | **not ported** — needs Windows or `pwsh`; there is no `.py` peer to call |
-
-Rules:
-
-- **Windows** — run the `.ps1` (`powershell -NoProfile -File <script> …`). This is the reference runtime; the PowerShell scripts are the complete toolchain.
-- **Linux / macOS** — run the available `.py` with `python3`, using the documented switches. The five metadata ports need `lxml`; the four web ports use the standard library but require compatible external Apache/1C binaries. Their operational differences and prerequisites are in [web-manage.md](docs/web-manage.md). A Python entry point is not a claim that the platform web extension works on every OS. Installing `pwsh` likewise does not make Windows-specific PowerShell code portable.
-- `tools/tests/python-ports-regression.py` checks the metadata ports' parity, command inventory and installer packaging. `tools/tests/web-python-regression.py` checks web operations with isolated fixtures and mocked process calls; it does not certify a live Apache/1C deployment. CI runs both Python suites on Windows and Linux.
-
-**Upstream ships Python variants of commands that this package does not.** They live in `Nikolay-Shirokov/cc-1c-skills` at the pinned commit `ecd289fe11733028d87b55284ea9fb5feff8f513` — immutable tree: <https://github.com/Nikolay-Shirokov/cc-1c-skills/tree/ecd289fe11733028d87b55284ea9fb5feff8f513/.claude/skills> (for example the `cf-*`, `cfe-*` and `db-*` skills); attribution and local deltas: [`NOTICE.md`](NOTICE.md). Those files are **not installed and not managed by this package's manifest**, and **not covered by our parity tests or by the local hardening** the shipped entry points above went through. They are therefore not a claim of full Linux / macOS support: do not install them automatically, and do not copy them over the patched `.py` scripts here, which carry local fixes and would be silently overwritten. If you use one, take it from upstream deliberately, keep it outside the installed skill tree, and follow the platform instructions upstream gives for that specific tool. Their existence never makes hand-editing metadata XML acceptable.
-
-**A missing runtime does not unlock hand-editing.** When a task needs a tool that has no Python entry point yet and no PowerShell host is available, that is a blocked task, not an exception to the Hard rule above — say so in one line and stop, or install `pwsh`. Silently hand-writing metadata XML because "the script would not run here" is the same defect as hand-editing with the tool available.
+On Windows use the shipped `.ps1` entry points. Before selecting a Linux/macOS runtime, using a Python port, or resolving a missing runtime, read [runtime-selection.md](docs/runtime-selection.md) for the exact supported commands and limitations. A missing runtime never permits hand-editing metadata XML.
 
 ## Logical addressing and optional preview
 
-`tools/_common/Invoke-1CEdit.ps1` wraps any tool of this skill and adds three things the vendored scripts do not have: a **logical address** instead of a physical path, a **unified diff** of what the run changed, and an optional **preview** that runs the real tool and then puts the tree back. Full reference: [edit-preview.md](docs/edit-preview.md).
+`tools/_common/Invoke-1CEdit.ps1` accepts logical addresses, emits a unified diff and can preview its own script writes. Before using the wrapper, read [edit-preview.md](docs/edit-preview.md) for arguments, rollback boundaries and `METADATA_PREVIEW` modes.
 
-**Apply immediately by default.** `.dev.env` `METADATA_PREVIEW` (default `auto`, editor `/previewmode`) reserves the preview for two cases: generation from a DSL (`form-compile`, `meta-compile`, `role-compile`, `skd-edit` batches) and a tool or `-Operation` this project has not run before. Ordinary edits apply straight away.
-
-```powershell
-# default: write now (logical address + unified diff after the run)
-powershell -NoProfile -File skills/1c-metadata-manage/tools/_common/Invoke-1CEdit.ps1 `
-    -Tool meta-edit -Object Справочник.Контрагенты `
-    -Operation add-attribute -Value '{"name":"ИНН","type":"String","length":12}'
-
-# optional: show the diff and restore the tree
-powershell -NoProfile -File skills/1c-metadata-manage/tools/_common/Invoke-1CEdit.ps1 `
-    -Tool meta-edit -Object Справочник.Контрагенты -Preview `
-    -Operation add-attribute -Value '{"name":"ИНН","type":"String","length":12}'
-```
-
-- **`-Object <Kind>.<Name>[.Форма|Макет|Права|МодульОбъекта.<Member>]`** resolves to the path the tool expects and is passed as `-Path`. Russian and English kind names both work. This is the same address the MCP servers use for `object_name`, so one task no longer carries two addressing schemes. Unknown kind = a refusal listing the accepted ones, never a path that points at nothing.
-- **`-Preview`** (alias `-DryRun`) shows the diff and restores the tree; a tool with its own `-DryRun` (`meta-remove`, `remove-form`, `remove-template`, `web-unpublish`, `db-load-git`) uses that native plan instead. The wrapper previews its own script writes only; a dirty git tree applies with a one-line note.
-- **Deletions keep their own gate:** native `-DryRun` then `-Force`, in every mode. A preview is never a substitute for `meta-validate` / `verify_xml`.
-- Applying without the wrapper stays valid. Cite a preview on the `Metadata tooling:` line only when one actually ran.
+Default `auto`: preview DSL generation or a tool/operation new to this project; ordinary edits apply immediately. Native deletion gates (`-DryRun`, then `-Force`) and validation always remain. Direct tool invocation is valid; name a preview on `Metadata tooling:` only when it ran. Do not stash or commit another person's changes to force a preview.
 
 ## Dispatch Strategy
 
@@ -103,31 +61,31 @@ The subagent already knows how to read the skill docs, execute PowerShell script
 
 ## Task Domain Table
 
-| Task Domain | Keywords | File |
-|---|---|---|
-| Metadata objects — create, edit, analyze, remove, validate | catalog, document, register, enum, constant, module, attribute, tabular section | [meta-manage.md](docs/meta-manage.md) |
-| UUID integrity — duplicate identities in an XML dump | UUID, duplicate uuid, TypeId, ValueId, identity collision, load failure after generation | [uuid-check.md](docs/uuid-check.md) |
-| Managed forms — design, create, edit, analyze, validate | form, Form.xml, UI, elements, commands, events | [form-manage.md](docs/form-manage.md) |
-| Managed-form layout patterns — archetypes, naming conventions, advanced patterns | form patterns, archetype, layout, naming, ERP form, list form, document form, wizard | fetch `standards(name="form-patterns")` on `1C-docs-mcp` (server not exposed → `content/rules/help-corpus-retrieval.md`) |
-| Form-compile DSL reference — full JSON DSL spec for `1c-form-compile`, `--from-object` mode, presets | form DSL, form-compile, autoCmdBar, columnGroup, RadioButtonField, --from-object, form preset | [form-compile-dsl.md](docs/form-compile-dsl.md) |
-| Data Composition Schema (DCS/SKD) — create, edit, analyze, decompile, validate | report, DCS, SKD, data composition, data set, query, decompile | [skd-manage.md](docs/skd-manage.md) |
-| Spreadsheet documents (MXL) — create, decompile, analyze, validate | MXL, spreadsheet, template, print form, layout | [mxl-manage.md](docs/mxl-manage.md) |
-| Roles and access rights — create, analyze, validate | role, rights, RLS, access, permissions | [role-manage.md](docs/role-manage.md) |
-| External processors/reports (EPF/ERF) — scaffold, build, dump, validate | EPF, ERF, data processor, external report, build, dump | [epf-manage.md](docs/epf-manage.md) |
-| BSP/SSL registration and commands | BSP, SSL, ExternalDataProcessorInfo, registration, command | [bsp-manage.md](docs/bsp-manage.md) |
-| Configuration (CF) and complete dump integrity (CF/CFE) — create, edit, analyze, validate | configuration, Configuration.xml, CF, missing/orphan objects, ConfigDumpInfo | [cf-manage.md](docs/cf-manage.md) |
-| Extensions (CFE) — create, borrow, diff, patch, validate | extension, CFE, borrow, interceptor, patch | [cfe-manage.md](docs/cfe-manage.md) |
-| Vendor support state — "на замке", editability, off-support | support, поддержка, на замке, замок, vendor updates, support-guard, SUPPORT_GUARD | [support-manage.md](docs/support-manage.md) |
-| XDTO packages — analyze, create from XSD, export, edit, validate | XDTO, package, XSD, XML schema, ФабрикаXDTO, namespace, exchange format, EnterpriseData | [xdto-manage.md](docs/xdto-manage.md) |
-| Databases — create, run, load, dump, DT backup | database, infobase, create DB, run 1C, dt, backup, .v8-project.json | [db-manage.md](docs/db-manage.md) |
-| Subsystems — create, edit, analyze, validate | subsystem, command interface, ChildObjects | [subsystem-manage.md](docs/subsystem-manage.md) |
-| Command interface — edit, validate | CommandInterface.xml, commands visibility, groups | [interface-manage.md](docs/interface-manage.md) |
-| Templates/layouts management — add, remove | template, layout, SpreadsheetDocument, HTML template | [template-manage.md](docs/template-manage.md) |
-| Help pages — add, manage | help, built-in help, documentation | [help-manage.md](docs/help-manage.md) |
-| SSL/BSP subsystems patterns | SSL patterns, standard subsystems, BSP events | `standards(name="dev-standards-architecture") §4` + `content/skills/mcp-1c-tools/docs/1c-ssl-mcp.md` |
-| Query writing — compose new queries from scratch | write query, build query, query template, ВЫБРАТЬ, ИЗ, СОЕДИНЕНИЕ, virtual tables, batch queries | [query-writing.md](docs/query-writing.md) |
-| Query optimization | query, temporary table, join, DCS optimization | [query-optimization.md](docs/query-optimization.md) |
-| Web publishing — publish, unpublish, status, smoke test | web, publish, Apache, IIS, web client, webdav, default.vrd | [web-manage.md](docs/web-manage.md) |
-| Unpack / rebuild CF, CFE, EPF binaries without 1C platform | v8unpack, binary unpack, headless extract, no platform | [v8unpack-cf.md](docs/v8unpack-cf.md) → standalone skill `v8unpack-cf` |
+| Task domain | Read before the operation |
+|---|---|
+| Metadata objects — create, edit, analyze, remove, validate | [meta-manage.md](docs/meta-manage.md) |
+| UUID integrity — duplicate identities in an XML dump | [uuid-check.md](docs/uuid-check.md) |
+| Managed forms — design, create, edit, analyze, validate | [form-manage.md](docs/form-manage.md) |
+| Managed-form layout patterns — archetypes, naming conventions, advanced patterns | fetch `standards(name="form-patterns")` on `1C-docs-mcp` (server not exposed → `content/rules/help-corpus-retrieval.md`) |
+| Form-compile DSL reference — full JSON DSL spec for `1c-form-compile`, `--from-object` mode, presets | [form-compile-dsl.md](docs/form-compile-dsl.md) |
+| Data Composition Schema (DCS/SKD) — create, edit, analyze, decompile, validate | [skd-manage.md](docs/skd-manage.md) |
+| Spreadsheet documents (MXL) — create, decompile, analyze, validate | [mxl-manage.md](docs/mxl-manage.md) |
+| Roles and access rights — create, analyze, validate | [role-manage.md](docs/role-manage.md) |
+| External processors/reports (EPF/ERF) — scaffold, build, dump, validate | [epf-manage.md](docs/epf-manage.md) |
+| BSP/SSL registration and commands | [bsp-manage.md](docs/bsp-manage.md) |
+| Configuration (CF) and complete dump integrity (CF/CFE) — create, edit, analyze, validate | [cf-manage.md](docs/cf-manage.md) |
+| Extensions (CFE) — create, borrow, diff, patch, validate | [cfe-manage.md](docs/cfe-manage.md) |
+| Vendor support state — "на замке", editability, off-support | [support-manage.md](docs/support-manage.md) |
+| XDTO packages — analyze, create from XSD, export, edit, validate | [xdto-manage.md](docs/xdto-manage.md) |
+| Databases — create, run, load, dump, DT backup | [db-manage.md](docs/db-manage.md) |
+| Subsystems — create, edit, analyze, validate | [subsystem-manage.md](docs/subsystem-manage.md) |
+| Command interface — edit, validate | [interface-manage.md](docs/interface-manage.md) |
+| Templates/layouts management — add, remove | [template-manage.md](docs/template-manage.md) |
+| Help pages — add, manage | [help-manage.md](docs/help-manage.md) |
+| SSL/BSP subsystems patterns | `standards(name="dev-standards-architecture") §4` + `content/skills/mcp-1c-tools/docs/1c-ssl-mcp.md` |
+| Query writing — compose new queries from scratch | [query-writing.md](docs/query-writing.md) |
+| Query optimization | [query-optimization.md](docs/query-optimization.md) |
+| Web publishing — publish, unpublish, status, smoke test | [web-manage.md](docs/web-manage.md) |
+| Unpack / rebuild CF, CFE, EPF binaries without 1C platform | [v8unpack-cf.md](docs/v8unpack-cf.md) → standalone skill `v8unpack-cf` |
 
 **If the task spans multiple domains**, the subagent will read all relevant docs automatically (or read each one directly for simple tasks).

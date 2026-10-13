@@ -112,6 +112,14 @@ The PowerShell scripts under `tools/1c-db-ops/scripts/` were refreshed from [Nik
 
 ## epf-manage.md
 
+### Local fix `2026-10-07` — common forms in external reports
+
+External reports and data processors may name configuration common forms in `DefaultForm` / `DefaultSettingsForm` / `DefaultVariantForm` (БСП reports: `CommonForm.ФормаОтчета`). Checked on 8.3.27.2130: such an ERF builds in an infobase that has the form, and the reference survives a dump in another infobase with a same-named form (it is stored by name); without the form the build fails with «Неизвестный объект метаданных».
+
+- `epf-validate` check 5 accepts `CommonForm.<Name>` in `DefaultForm` instead of warning about an unexpected prefix.
+- `stub-db-create` creates an empty managed common form for every `CommonForm.<Name>` named by those properties, so a build without an explicit infobase passes.
+- `erf-init` gained `-BspForms`: the three main forms are the БСП common forms.
+
 ### Upstream sync `2026-07-30`
 
 Scripts refreshed from [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills): `epf-build` v1.0 → **v1.12**, `epf-dump` v1.0 → **v1.11**, `stub-db-create` v1.0 → **v1.7**, `erf-init` → **v1.1** (full ERF scaffold — the local copy was a truncated variant).
