@@ -112,7 +112,9 @@ Unknown event names are a **refusal**, not a warning: an event that does not exi
 
 **Form** (`events`): `OnCreateAtServer`, `OnOpen`, `BeforeClose`, `OnClose`, `NotificationProcessing`, `ChoiceProcessing`, `OnReadAtServer`, `BeforeWriteAtServer`, `OnWriteAtServer`, `AfterWriteAtServer`, `BeforeWrite`, `AfterWrite`, `FillCheckProcessingAtServer`, `BeforeLoadDataFromSettingsAtServer`, `OnLoadDataFromSettingsAtServer`, `ExternalEvent`, `Opening`.
 
-**input / picField**: `OnChange`, `StartChoice`, `ChoiceProcessing`, `AutoComplete`, `TextEditEnd`, `Clearing`, `Creating`, `EditTextChange`.
+**input**: `OnChange`, `StartChoice`, `StartListChoice`, `ChoiceProcessing`, `AutoComplete`, `TextEditEnd`, `Clearing`, `Creating`, `EditTextChange`, `Tuning`, `Opening`.
+
+**picField**: `OnChange`, `StartChoice`, `ChoiceProcessing`, `Click`, `Clearing`.
 
 **check / radio**: `OnChange`.
 

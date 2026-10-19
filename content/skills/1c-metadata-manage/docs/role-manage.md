@@ -9,7 +9,7 @@ Creates role files (metadata + Rights.xml) from a JSON description.
 
 > **Preferred path** — invoke the PowerShell script `tools/1c-role-compile/scripts/role-compile.ps1` (added from upstream `cc-1c-skills` `w-2026-05-17`). The full JSON DSL for the script lives in `tools/1c-role-compile/dsl-reference.md` (legacy Russian — to be translated separately).
 >
-> The XML templates below remain for manual fallback when the script is not applicable (e.g. one-off rights-only edits).
+> The XML templates below are for rights-only changes to an existing role — the hand-edit exception of `SKILL.md → Hard rule` (no tool edits a role in place: `role-compile` writes a new role with a new UUID). Keep the role's `.xml`, its UUID and the other entries as they are and finish with `role-validate` (section 3).
 
 ## Usage
 
@@ -291,21 +291,22 @@ Use `-Offset N` and `-Limit N` for paginated viewing.
 ---
 ## 3. Validate — Check Correctness
 
-Checks correctness of a role's `Rights.xml`: XML format, namespace, global flags, object types, right names, RLS restrictions, templates. Optionally checks role metadata (UUID, name, synonym).
+Checks correctness of a role's `Rights.xml`: XML format, namespace, global flags, object types, right names, RLS restrictions, templates. The role metadata (UUID, name, synonym) is checked as well when `Roles/<RoleName>.xml` is found — it is located from the `Rights.xml` path, there is no parameter for it.
 
 ## Usage
 
 ```powershell
-powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-role-validate/scripts/role-validate.ps1 -RightsPath <path> [-MetadataPath <path>] [-OutFile <output.txt>]
+powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-role-validate/scripts/role-validate.ps1 -RightsPath <path> [-OutFile <output.txt>] [-Detailed] [-MaxErrors <n>]
 ```
 
 ### Parameters
 
 | Parameter | Required | Description |
 |-----------|:--------:|-------------|
-| `-RightsPath` | yes | Path to `Rights.xml` of the role |
-| `-MetadataPath` | no | Path to role metadata (`Roles/RoleName.xml`) |
+| `-RightsPath` (alias `-Path`) | yes | Path to `Rights.xml` of the role, or to the role folder `Roles/RoleName` (resolved to `Ext/Rights.xml`) |
 | `-OutFile` | no | Write result to file (UTF-8 BOM). Without this — console output |
+| `-Detailed` | no | Print every passed check, not only the one-line summary |
+| `-MaxErrors` | no | Stop after this many errors (default 30) |
 
 **Important:** For Cyrillic paths, use `-OutFile` and read the result via the Read tool.
 
@@ -324,7 +325,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-role-validate
 6. RLS `<restrictionByCondition>`: `<condition>` is not empty
 7. Templates `<restrictionTemplate>`: `<name>` and `<condition>` are not empty
 
-### Metadata (optional)
+### Metadata (when `Roles/<RoleName>.xml` exists)
 - `<Role>` element found
 - UUID in correct format
 - `<Name>` is not empty
@@ -348,17 +349,17 @@ Exit code: `0` — no errors, `1` — errors found.
 ... -RightsPath Roles/БазовыеПраваБП/Ext/Rights.xml
 ```
 
-### With Metadata Check
+### Role Folder, Full Trace
 
 ```powershell
-... -RightsPath Roles/МояРоль/Ext/Rights.xml -MetadataPath Roles/МояРоль.xml
+... -RightsPath Roles/МояРоль -Detailed
 ```
 
 ### Verification After role-compile
 
 ```
 1c-role-compile role.json Roles/
-1c-role-validate -RightsPath Roles/МояРоль/Ext/Rights.xml -MetadataPath Roles/МояРоль.xml
+1c-role-validate -RightsPath Roles/МояРоль/Ext/Rights.xml
 ```
 
 ---
@@ -366,7 +367,7 @@ Exit code: `0` — no errors, `1` — errors found.
 
 ```
 1c-role-compile <RoleName> <RolesDir>                    — create role from description
-1c-role-validate -RightsPath <path> -MetadataPath <path>  — validate correctness
+1c-role-validate -RightsPath <path>                      — validate correctness
 1c-role-info <RightsPath>                                — analyze existing role before modification
 ```
 

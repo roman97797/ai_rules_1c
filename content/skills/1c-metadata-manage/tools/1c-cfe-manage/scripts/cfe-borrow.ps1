@@ -1,6 +1,12 @@
-﻿# cfe-borrow v1.9 — Borrow objects from configuration into extension (CFE)
+﻿# cfe-borrow v1.11 — Borrow objects from configuration into extension (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # Local: BaseForm indents only between tags; a multi-line text keeps its bytes.
+# Local: Configurator 2.20 shapes — form InternalInfo PropertyState, CommandSet kept, no empty form module,
+#        Document <RegisterRecords/>, new ChildObjects entry at the end of its type group;
+#        one attribute / tabular-section column per -Object; -BorrowMainAttribute Only.
+#        Detect-FormatVersion uses the string length, not the file byte length.
+#        A style:X that is not borrowed and is not a platform style item is stripped.
+#        An element CommandSet keeps its ExcludedCommand list (no empty CommandSet).
 param(
 	[Parameter(Mandatory)][string]$ExtensionPath,
 	[Parameter(Mandatory)][string]$ConfigPath,
@@ -358,7 +364,11 @@ function Detect-FormatVersion([string]$dir) {
 	while ($d) {
 		$cfgPath = Join-Path $d "Configuration.xml"
 		if (Test-Path $cfgPath) {
-			$head = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8).Substring(0, [Math]::Min(2000, (Get-Item $cfgPath).Length))
+			# File.Length is bytes; Substring counts characters. A short UTF-8 Configuration.xml
+			# with Cyrillic is fewer characters than bytes and used to throw (exit 1).
+			$text = [System.IO.File]::ReadAllText($cfgPath, [System.Text.Encoding]::UTF8)
+			$headLen = [Math]::Min(2000, $text.Length)
+			$head = if ($headLen -gt 0) { $text.Substring(0, $headLen) } else { "" }
 			if ($head -match '<MetaDataObject[^>]+version="(\d+\.\d+)"') { return $Matches[1] }
 		}
 		$parent = Split-Path $d -Parent
@@ -389,8 +399,8 @@ if ($items.Count -eq 0) {
 if ($BorrowMainAttribute) {
 	# PS treats -BorrowMainAttribute without value as "True"
 	if ($BorrowMainAttribute -eq "True") { $BorrowMainAttribute = "Form" }
-	if ($BorrowMainAttribute -notin @("Form","All")) {
-		Write-Error "-BorrowMainAttribute accepts 'Form' or 'All' (default: Form)"
+	if ($BorrowMainAttribute -notin @("Form","All","Only")) {
+		Write-Error "-BorrowMainAttribute accepts 'Form', 'All' or 'Only' (default: Form)"
 		exit 1
 	}
 	# Validate: only with .Form. pattern
@@ -506,8 +516,11 @@ function Read-SourceFormUuid {
 }
 
 # --- 10c. Helper: borrow a form ---
+# -BorrowMainAttr adds the main attribute Объект; -KeepObjektBindings keeps the Объект.* data paths
+# (Form / All borrow the attributes behind them). Without it every binding is stripped, identically
+# in the form and in BaseForm.
 function Borrow-Form {
-	param([string]$typeName, [string]$objName, [string]$formName, [switch]$BorrowMainAttr)
+	param([string]$typeName, [string]$objName, [string]$formName, [switch]$BorrowMainAttr, [switch]$KeepObjektBindings)
 
 	$dirName = $childTypeDirMap[$typeName]
 	$enc = New-Object System.Text.UTF8Encoding($true)
@@ -545,7 +558,13 @@ function Borrow-Form {
 	$formMetaSb.AppendLine("<?xml version=`"1.0`" encoding=`"UTF-8`"?>") | Out-Null
 	$formMetaSb.AppendLine("<MetaDataObject $($script:xmlnsDecl) version=`"$($script:formatVersion)`">") | Out-Null
 	$formMetaSb.AppendLine("`t<Form uuid=`"${newFormUuid}`">") | Out-Null
-	$formMetaSb.AppendLine("`t`t<InternalInfo/>") | Out-Null
+	# The form gets its own Ext/Form.xml below; Configurator 2.20 marks that as an extended Form property.
+	$formMetaSb.AppendLine("`t`t<InternalInfo>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t<xr:PropertyState>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t`t<xr:Property>Form</xr:Property>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t`t<xr:State>Extended</xr:State>") | Out-Null
+	$formMetaSb.AppendLine("`t`t`t</xr:PropertyState>") | Out-Null
+	$formMetaSb.AppendLine("`t`t</InternalInfo>") | Out-Null
 	$formMetaSb.AppendLine("`t`t<Properties>") | Out-Null
 	$formMetaSb.AppendLine("`t`t`t<ObjectBelonging>Adopted</ObjectBelonging>") | Out-Null
 	$formMetaSb.AppendLine("`t`t`t<Name>${formName}</Name>") | Out-Null
@@ -579,7 +598,9 @@ function Borrow-Form {
 	# (e.g. a 2.13 form inside a 2.17 extension). The platform itself upgrades the form to the root version.
 	$formVersion = $script:formatVersion
 
-	# Find direct children: form properties, AutoCommandBar, ChildItems
+	# Find direct children: form properties, AutoCommandBar, ChildItems.
+	# CommandSet (with its ExcludedCommand list) is a form property like AutoTime: Configurator keeps it
+	# and every property after it up to AutoCommandBar, in the form and in BaseForm.
 	$srcAutoCmd = $null
 	$srcChildItems = $null
 	$formProps = @()
@@ -592,7 +613,7 @@ function Borrow-Form {
 		if ($fc.LocalName -eq 'ChildItems' -and -not $srcChildItems) {
 			$reachedVisual = $true; $srcChildItems = $fc; continue
 		}
-		if ($fc.LocalName -eq 'Events' -or $fc.LocalName -eq 'Attributes' -or $fc.LocalName -eq 'Commands' -or $fc.LocalName -eq 'Parameters' -or $fc.LocalName -eq 'CommandSet') {
+		if ($fc.LocalName -eq 'Events' -or $fc.LocalName -eq 'Attributes' -or $fc.LocalName -eq 'Commands' -or $fc.LocalName -eq 'Parameters') {
 			$reachedVisual = $true; continue
 		}
 		if (-not $reachedVisual) {
@@ -613,7 +634,7 @@ function Borrow-Form {
 		# Strip ExcludedCommand (references to standard commands invalid in extension)
 		$autoCmdXml = [regex]::Replace($autoCmdXml, '\s*<ExcludedCommand>[^<]*</ExcludedCommand>', '')
 		# Strip data-binding tags whose root attribute isn't borrowed
-		$autoCmdXml = Strip-FormBindings $autoCmdXml ([bool]$BorrowMainAttr)
+		$autoCmdXml = Strip-FormBindings $autoCmdXml ([bool]$KeepObjektBindings)
 	}
 
 	# ChildItems: copy full tree, clean up base-config references
@@ -625,9 +646,9 @@ function Borrow-Form {
 		$childItemsXml = [regex]::Replace($childItemsXml, '<CommandName>[^<]*</CommandName>', '<CommandName>0</CommandName>')
 		# Strip data-binding tags whose root attribute isn't borrowed
 		# (DataPath/TitleDataPath/FooterDataPath/HeaderDataPath/MultipleValue*/RowPicture*)
-		$childItemsXml = Strip-FormBindings $childItemsXml ([bool]$BorrowMainAttr)
-		# Strip ExcludedCommand in nested AutoCommandBars (references to standard commands invalid in extension)
-		$childItemsXml = [regex]::Replace($childItemsXml, '\s*<ExcludedCommand>[^<]*</ExcludedCommand>', '')
+		$childItemsXml = Strip-FormBindings $childItemsXml ([bool]$KeepObjektBindings)
+		# An element CommandSet keeps its ExcludedCommand list: Configurator writes it in both parts
+		# of a borrowed form and drops an empty one on load.
 		# Strip TypeLink blocks with human-readable DataPath (Items.XXX — can't convert to UUID)
 		$childItemsXml = [regex]::Replace($childItemsXml, '(?s)\s*<TypeLink>\s*<xr:DataPath>Items\.[^<]*</xr:DataPath>.*?</TypeLink>', '')
 		# Strip element-level Events (base form handlers not in extension)
@@ -701,16 +722,34 @@ function Borrow-Form {
 			$autoCmdXml = [regex]::Replace($autoCmdXml, '(?s)\s*<Picture>\s*<xr:Ref>StdPicture\.(?!Print\b)\w+</xr:Ref>.*?</Picture>', '')
 		}
 
-		# Auto-borrow StyleItems referenced in ChildItems
+		# Auto-borrow StyleItems referenced in the form, AutoCommandBar and form properties.
 		# Pattern 1: <Font ref="style:XXX" kind="StyleItem"/>, <TitleFont ref="style:XXX" ... kind="StyleItem"/>
 		# Pattern 2: <BackColor>style:XXX</BackColor>, <TextColor>style:XXX</TextColor>, etc.
+		# A style the extension does not contain fails Configuration.xml load, so it is borrowed
+		# when the source file exists and stripped otherwise. Platform style items stay.
+		$platformStyleItems = @{
+			"TableHeaderBackColor"=$true; "AccentColor"=$true; "NormalTextFont"=$true
+			"FormBackColor"=$true; "ToolTipBackColor"=$true; "BorderColor"=$true
+			"FieldBackColor"=$true; "FieldTextColor"=$true; "ButtonBackColor"=$true
+			"ButtonTextColor"=$true; "AlternateRowColor"=$true; "SpecialTextColor"=$true
+			"TextFont"=$true; "ImportantColor"=$true; "FormTextColor"=$true
+			"SmallTextFont"=$true; "ExtraLargeTextFont"=$true; "LargeTextFont"=$true
+			"NormalTextColor"=$true; "GroupHeaderBackColor"=$true; "GroupHeaderFont"=$true
+			"ErrorColor"=$true; "SuccessColor"=$true; "WarningColor"=$true
+		}
+		$styleScan = $childItemsXml
+		if ($autoCmdXml) { $styleScan += "`n" + $autoCmdXml }
+		foreach ($propXml in $formProps) { $styleScan += "`n" + $propXml }
 		$referencedStyles = @{}
-		$styleRefs1 = [regex]::Matches($childItemsXml, 'ref="style:(\w+)"[^>]*kind="StyleItem"')
+		$styleRefs1 = [regex]::Matches($styleScan, 'ref="style:(\w+)"[^>]*kind="StyleItem"')
 		foreach ($m in $styleRefs1) { $referencedStyles[$m.Groups[1].Value] = $true }
-		$styleRefs2 = [regex]::Matches($childItemsXml, '>style:(\w+)</\w+>')
+		$styleRefs1b = [regex]::Matches($styleScan, 'kind="StyleItem"[^>]*ref="style:(\w+)"')
+		foreach ($m in $styleRefs1b) { $referencedStyles[$m.Groups[1].Value] = $true }
+		$styleRefs2 = [regex]::Matches($styleScan, '>style:(\w+)</\w+>')
 		foreach ($m in $styleRefs2) { $referencedStyles[$m.Groups[1].Value] = $true }
 
-		foreach ($styleName in $referencedStyles.Keys) {
+		foreach ($styleName in @($referencedStyles.Keys)) {
+			if ($platformStyleItems.ContainsKey($styleName)) { continue }
 			if (-not (Test-ObjectBorrowed "StyleItem" $styleName)) {
 				$styleSrcFile = Join-Path (Join-Path $cfgDir "StyleItems") "${styleName}.xml"
 				if (Test-Path $styleSrcFile) {
@@ -727,10 +766,40 @@ function Borrow-Form {
 					$script:borrowedFiles += $targetFile
 					Info "  Auto-borrowed: StyleItem.${styleName}"
 				} else {
-					Warn "  StyleItem.${styleName} not found in source config"
+					Warn "  StyleItem.${styleName} not found in source config — will strip from form"
 				}
 			}
 		}
+
+		$borrowedStyleSet = @{}
+		$styleNodes = $script:xmlDoc.SelectNodes("//md:ChildObjects/md:StyleItem", $nsMgr2)
+		foreach ($sn in $styleNodes) { $borrowedStyleSet[$sn.InnerText] = $true }
+		$stripStyleRef = {
+			param([string]$xml)
+			if (-not $xml) { return $xml }
+			$patterns = @(
+				'(?s)\s*<\w+\b[^>]*ref="style:(\w+)"[^>]*kind="StyleItem"[^>]*/>',
+				'(?s)\s*<\w+\b[^>]*kind="StyleItem"[^>]*ref="style:(\w+)"[^>]*/>',
+				'(?s)\s*<(\w+)>style:(\w+)</\1>'
+			)
+			foreach ($pattern in $patterns) {
+				$hits = [regex]::Matches($xml, $pattern)
+				for ($si = $hits.Count - 1; $si -ge 0; $si--) {
+					$hm = $hits[$si]
+					$styleName = $hm.Groups[$hm.Groups.Count - 1].Value
+					if ($platformStyleItems.ContainsKey($styleName)) { continue }
+					if ($borrowedStyleSet.ContainsKey($styleName)) { continue }
+					$xml = $xml.Remove($hm.Index, $hm.Length)
+				}
+			}
+			return $xml
+		}
+		$childItemsXml = & $stripStyleRef $childItemsXml
+		if ($autoCmdXml) { $autoCmdXml = & $stripStyleRef $autoCmdXml }
+		for ($pi = 0; $pi -lt $formProps.Count; $pi++) {
+			$formProps[$pi] = & $stripStyleRef $formProps[$pi]
+		}
+		$formProps = @($formProps | Where-Object { $_ -and $_.Trim() })
 		# Auto-borrow Enums + EnumValues referenced via DesignTimeRef in ChoiceParameters
 		# Collect Enum -> [EnumValue names] map
 		$dtRefs = [regex]::Matches($childItemsXml, 'xr:DesignTimeRef">Enum\.(\w+)\.EnumValue\.(\w+)')
@@ -856,7 +925,8 @@ function Borrow-Form {
 
 	foreach ($propXml in $formProps) {
 		$propXml = [regex]::Replace($propXml, $nsStripPattern, '')
-		$formXmlSb.Append("`t`t$propXml`r`n") | Out-Null
+		# Multi-line properties (Title, CommandSet) shift one level deeper like the visual blocks
+		$formXmlSb.Append("`t`t$(Add-BaseFormIndent $propXml)`r`n") | Out-Null
 	}
 	if ($autoCmdXml) {
 		$formXmlSb.Append("`t`t$(Add-BaseFormIndent $autoCmdXml)") | Out-Null
@@ -894,24 +964,19 @@ function Borrow-Form {
 	[System.IO.File]::WriteAllText($formXmlFile, $formXmlSb.ToString(), $enc)
 	Info "  Created: $formXmlFile"
 
-	# 6. Create empty Module.bsl — but NEVER overwrite an existing one (re-borrow must
-	# not clobber user code added to the form module).
-	$moduleDir = Join-Path $formXmlDir "Form"
-	if (-not (Test-Path $moduleDir)) {
-		New-Item -ItemType Directory -Path $moduleDir -Force | Out-Null
-	}
-	$moduleBslFile = Join-Path $moduleDir "Module.bsl"
+	# 6. Form module: Configurator writes no Module.bsl for a borrowed form until the module has code
+	# (cfe-patch-method creates it). An existing one is user code — re-borrow keeps it untouched.
+	$formFiles = @($formMetaFile, $formXmlFile)
+	$moduleBslFile = Join-Path (Join-Path $formXmlDir "Form") "Module.bsl"
 	if (Test-Path $moduleBslFile) {
 		Info "  Preserved existing Module.bsl"
-	} else {
-		[System.IO.File]::WriteAllText($moduleBslFile, "", $enc)
-		Info "  Created: $moduleBslFile"
+		$formFiles += $moduleBslFile
 	}
 
 	# 7. Register form in parent object ChildObjects
 	Register-FormInObject $typeName $objName $formName
 
-	return @($formMetaFile, $formXmlFile, $moduleBslFile)
+	return $formFiles
 }
 
 # --- 10d. Helper: register form in parent object's ChildObjects ---
@@ -1631,6 +1696,213 @@ function Borrow-DeepTargetAttrs {
 	}
 }
 
+# --- 11j. Helpers for borrowing one attribute into an extension object (DOM, whitespace kept) ---
+# Indent of $node itself: one tab per element level below MetaDataObject.
+function Get-XmlIndent($node) {
+	$depth = 0
+	$p = $node.ParentNode
+	while ($p -and $p.NodeType -eq 'Element') { $depth++; $p = $p.ParentNode }
+	return "`t" * $depth
+}
+
+# Child element <$localName> of $container whose Properties/Name is $name.
+function Find-NamedChild($container, [string]$localName, [string]$name, $nsm) {
+	if (-not $container) { return $null }
+	foreach ($c in $container.ChildNodes) {
+		if ($c.NodeType -ne 'Element' -or $c.LocalName -ne $localName) { continue }
+		$n = $c.SelectSingleNode("md:Properties/md:Name", $nsm)
+		if ($n -and $n.InnerText -eq $name) { return ,$c }
+	}
+	return $null
+}
+
+# <ChildObjects> of $owner; created right after its <Properties> when the shell has none.
+function Get-OrAddChildObjects($doc, $owner, $nsm) {
+	$co = $owner.SelectSingleNode("md:ChildObjects", $nsm)
+	if ($co) { return ,$co }
+	$co = $doc.CreateElement("ChildObjects", $script:mdNs)
+	$props = $owner.SelectSingleNode("md:Properties", $nsm)
+	$owner.InsertAfter($co, $props) | Out-Null
+	$owner.InsertAfter($doc.CreateWhitespace("`n$(Get-XmlIndent $owner)`t"), $props) | Out-Null
+	return ,$co
+}
+
+# Parses an element written by Build-Adopted*Xml and imports it into $doc.
+function Import-XmlFragment($doc, [string]$text) {
+	$wrapDoc = New-Object System.Xml.XmlDocument
+	$wrapDoc.PreserveWhitespace = $true
+	$wrapDoc.LoadXml("<Fragment $($script:xmlnsDecl)>$text</Fragment>")
+	foreach ($c in $wrapDoc.DocumentElement.ChildNodes) {
+		if ($c.NodeType -eq 'Element') { return ,($doc.ImportNode($c, $true)) }
+	}
+	return $null
+}
+
+# Places $node among ChildObjects in Configurator order: right after the last element of its kind,
+# else before the first element of a later kind, else last.
+function Insert-ObjectChild($doc, $container, $node, [string]$kind, [string]$childIndent) {
+	$kindOrder = @("Attribute","TabularSection","Form","Template","Command")
+	$kindIdx = $kindOrder.IndexOf($kind)
+	$lastSame = $null
+	$firstLater = $null
+	foreach ($c in $container.ChildNodes) {
+		if ($c.NodeType -ne 'Element') { continue }
+		if ($c.LocalName -eq $kind) { $lastSame = $c; continue }
+		if ($kindOrder.IndexOf($c.LocalName) -gt $kindIdx -and -not $firstLater) { $firstLater = $c }
+	}
+	$ref = $firstLater
+	if ($lastSame) {
+		$ref = $lastSame.NextSibling
+		while ($ref -and $ref.NodeType -ne 'Element') { $ref = $ref.NextSibling }
+	}
+	$parentIndent = $childIndent.Substring(1)
+	if ($ref) {
+		$ws = $doc.CreateWhitespace("`n$childIndent")
+		$container.InsertBefore($ws, $ref) | Out-Null
+		$container.InsertBefore($node, $ws) | Out-Null
+		return
+	}
+	$trailing = $container.LastChild
+	if ($trailing -and ($trailing.NodeType -eq 'Whitespace' -or $trailing.NodeType -eq 'SignificantWhitespace')) {
+		$container.InsertBefore($doc.CreateWhitespace("`n$childIndent"), $trailing) | Out-Null
+		$container.InsertBefore($node, $trailing) | Out-Null
+	} else {
+		$container.AppendChild($doc.CreateWhitespace("`n$childIndent")) | Out-Null
+		$container.AppendChild($node) | Out-Null
+		$container.AppendChild($doc.CreateWhitespace("`n$parentIndent")) | Out-Null
+	}
+}
+
+# Writes an object XML the way Register-FormInObject does: BOM, <Tag/>, the file's own EOL.
+function Save-ObjectXml($doc, [string]$path) {
+	$targetEol = if ([System.IO.File]::ReadAllText($path) -match "`r`n") { "`r`n" } else { "`n" }
+	$settings = New-Object System.Xml.XmlWriterSettings
+	$settings.Encoding = New-Object System.Text.UTF8Encoding($true)
+	$settings.Indent = $false
+	$settings.NewLineHandling = [System.Xml.NewLineHandling]::None
+	$memStream = New-Object System.IO.MemoryStream
+	$writer = [System.Xml.XmlWriter]::Create($memStream, $settings)
+	$doc.Save($writer)
+	$writer.Flush(); $writer.Close()
+	$text = [System.Text.Encoding]::UTF8.GetString($memStream.ToArray())
+	$memStream.Close()
+	if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { $text = $text.Substring(1) }
+	$text = $text.Replace('encoding="utf-8"', 'encoding="UTF-8"')
+	$text = [regex]::Replace($text, '(?s)<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?<=\S) />', { param($m) if ($m.Value -eq ' />') { '/>' } else { $m.Value } })
+	$text = ($text -replace "`r`n", "`n") -replace "`n", $targetEol
+	[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($true)))
+}
+
+# --- 11k. Borrow one attribute: Type.Name.Attribute.A or Type.Name.TabularSection.T.Attribute.A ---
+# Exactly that attribute, as Configurator borrows it: ExtendedConfigurationObject is the source
+# attribute's uuid, <Type> is the source's <Type> with its own line layout. A column brings its tabular
+# section, adopted without the other columns. The objects named in the type are borrowed as shells so
+# the type resolves; nothing else cascades (unlike -BorrowMainAttribute Form / All).
+function Borrow-SingleAttribute {
+	param([string]$typeName, [string]$objName, [string]$tsName, [string]$attrName)
+
+	$dirName = $childTypeDirMap[$typeName]
+	$label = if ($tsName) { "${typeName}.${objName}.TabularSection.${tsName}.Attribute.${attrName}" } else { "${typeName}.${objName}.Attribute.${attrName}" }
+	$encBomLocal = New-Object System.Text.UTF8Encoding($true)
+
+	# 1. Source attribute
+	$srcFile = Join-Path (Join-Path $cfgDir $dirName) "${objName}.xml"
+	if (-not (Test-Path $srcFile)) { Write-Error "Source object not found: $srcFile"; exit 1 }
+	$srcDoc = New-Object System.Xml.XmlDocument
+	$srcDoc.PreserveWhitespace = $true
+	$srcDoc.Load($srcFile)
+	$srcNs = New-Object System.Xml.XmlNamespaceManager($srcDoc.NameTable)
+	$srcNs.AddNamespace("md", $script:mdNs)
+	$srcNs.AddNamespace("xr", $script:xrNs)
+	$srcEl = $null
+	foreach ($c in $srcDoc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $srcEl = $c; break } }
+	$srcHolder = $srcEl
+	$srcTs = $null
+	if ($tsName) {
+		$srcTs = Find-NamedChild ($srcEl.SelectSingleNode("md:ChildObjects", $srcNs)) "TabularSection" $tsName $srcNs
+		if (-not $srcTs) { Write-Error "Source tabular section not found: ${typeName}.${objName}.TabularSection.${tsName}"; exit 1 }
+		$srcHolder = $srcTs
+	}
+	$srcAttr = Find-NamedChild ($srcHolder.SelectSingleNode("md:ChildObjects", $srcNs)) "Attribute" $attrName $srcNs
+	if (-not $srcAttr) { Write-Error "Source attribute not found: $label"; exit 1 }
+	$srcTypeNode = $srcAttr.SelectSingleNode("md:Properties/md:Type", $srcNs)
+	if (-not $srcTypeNode) { Write-Error "Source attribute has no <Type>: $label"; exit 1 }
+	$typeXml = [regex]::Replace($srcTypeNode.OuterXml, '\s+xmlns(?::\w+)?="[^"]*"', '')
+	$column = @{ Name = $attrName; Uuid = $srcAttr.GetAttribute("uuid"); TypeXml = $typeXml }
+
+	# 2. Parent object shell
+	$objFile = Join-Path (Join-Path $extDir $dirName) "${objName}.xml"
+	if (-not (Test-ObjectBorrowed $typeName $objName)) {
+		Info "  Parent object ${typeName}.${objName} not yet borrowed — borrowing first..."
+		$src = Read-SourceObject $typeName $objName
+		$borrowedXml = Build-BorrowedObjectXml $typeName $objName $src.Uuid $src.Properties
+		$targetDir = Join-Path $extDir $dirName
+		if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
+		[System.IO.File]::WriteAllText($objFile, $borrowedXml, $encBomLocal)
+		Add-ToChildObjects $typeName $objName
+		$script:borrowedFiles += $objFile
+	}
+
+	# 3. Add the attribute (or the tabular section with it) unless it is already there
+	$objDoc = New-Object System.Xml.XmlDocument
+	$objDoc.PreserveWhitespace = $true
+	$objDoc.Load($objFile)
+	$objNs = New-Object System.Xml.XmlNamespaceManager($objDoc.NameTable)
+	$objNs.AddNamespace("md", $script:mdNs)
+	$objEl = $null
+	foreach ($c in $objDoc.DocumentElement.ChildNodes) { if ($c.NodeType -eq 'Element') { $objEl = $c; break } }
+	$childObjs = Get-OrAddChildObjects $objDoc $objEl $objNs
+	$childIndent = (Get-XmlIndent $childObjs) + "`t"
+
+	$node = $null
+	$extTs = if ($tsName) { Find-NamedChild $childObjs "TabularSection" $tsName $objNs } else { $null }
+	if ($tsName -and -not $extTs) {
+		$tsGenTypes = @()
+		foreach ($gt in $srcTs.SelectNodes("md:InternalInfo/xr:GeneratedType", $srcNs)) {
+			$tsGenTypes += @{ Name = $gt.GetAttribute("name"); Category = $gt.GetAttribute("category") }
+		}
+		$node = Import-XmlFragment $objDoc (Build-AdoptedTabularSectionXml $tsName $srcTs.GetAttribute("uuid") $tsGenTypes @($column) $childIndent)
+		Insert-ObjectChild $objDoc $childObjs $node "TabularSection" $childIndent
+	} else {
+		$holder = if ($extTs) { Get-OrAddChildObjects $objDoc $extTs $objNs } else { $childObjs }
+		if (Find-NamedChild $holder "Attribute" $attrName $objNs) {
+			Info "  Already borrowed: $label"
+		} else {
+			$holderIndent = (Get-XmlIndent $holder) + "`t"
+			$node = Import-XmlFragment $objDoc (Build-AdoptedAttributeXml $attrName $column.Uuid $typeXml $holderIndent)
+			Insert-ObjectChild $objDoc $holder $node "Attribute" $holderIndent
+		}
+	}
+	if ($node) {
+		Save-ObjectXml $objDoc $objFile
+		if ($script:borrowedFiles -notcontains $objFile) { $script:borrowedFiles += $objFile }
+		Info "  Borrowed: $label"
+	}
+
+	# 4. Objects named in the attribute's type, as shells
+	foreach ($rt in @(Collect-ReferenceTypes @($typeXml))) {
+		if (-not $childTypeDirMap.ContainsKey($rt.TypeName)) {
+			Warn "  Unknown reference type: $($rt.TypeName).$($rt.ObjName)"
+			continue
+		}
+		if (Test-ObjectBorrowed $rt.TypeName $rt.ObjName) { continue }
+		$rtSrcFile = Join-Path (Join-Path $cfgDir $childTypeDirMap[$rt.TypeName]) "$($rt.ObjName).xml"
+		if (-not (Test-Path $rtSrcFile)) {
+			Warn "  Source not found: $($rt.TypeName).$($rt.ObjName)"
+			continue
+		}
+		$src = Read-SourceObject $rt.TypeName $rt.ObjName
+		$borrowedXml = Build-BorrowedObjectXml $rt.TypeName $rt.ObjName $src.Uuid $src.Properties
+		$targetDir = Join-Path $extDir $childTypeDirMap[$rt.TypeName]
+		if (-not (Test-Path $targetDir)) { New-Item -ItemType Directory -Path $targetDir -Force | Out-Null }
+		$targetFile = Join-Path $targetDir "$($rt.ObjName).xml"
+		[System.IO.File]::WriteAllText($targetFile, $borrowedXml, $encBomLocal)
+		Add-ToChildObjects $rt.TypeName $rt.ObjName
+		$script:borrowedFiles += $targetFile
+		Info "  Auto-borrowed (attribute type): $($rt.TypeName).$($rt.ObjName)"
+	}
+}
+
 # --- 12. Helper: build borrowed object XML ---
 function Build-BorrowedObjectXml {
 	param(
@@ -1674,6 +1946,12 @@ function Build-BorrowedObjectXml {
 		$sb.AppendLine("`t`t`t$($sourceProps['__TypeXml'])") | Out-Null
 	}
 
+	# Document: Configurator writes an empty <RegisterRecords/> for a borrowed document
+	# (Number* properties added by -BorrowMainAttribute go before it, after ExtendedConfigurationObject)
+	if ($typeName -eq "Document") {
+		$sb.AppendLine("`t`t`t<RegisterRecords/>") | Out-Null
+	}
+
 	$sb.AppendLine("`t`t</Properties>") | Out-Null
 
 	# ChildObjects (for types that need it)
@@ -1713,8 +1991,10 @@ function Add-ToChildObjects {
 		}
 	}
 
-	# Find insertion point: after last element of same type, or before first element of later type
-	$insertBefore = $null
+	# Find insertion point: after last element of same type, or before first element of later type.
+	# Configurator appends a borrowed object at the end of its type group, it does not sort by name.
+	# (By-name order, APK:1108, is the main configuration's rule — cf-edit / meta-compile, not here.)
+	$firstLaterType = $null
 	$lastSameType = $null
 
 	foreach ($child in $script:childObjsEl.ChildNodes) {
@@ -1723,15 +2003,17 @@ function Add-ToChildObjects {
 		if ($childTypeIdx -lt 0) { continue }
 
 		if ($child.LocalName -eq $typeName) {
-			# Same type -- check alphabetical order
-			if ($child.InnerText -gt $objName -and -not $insertBefore) {
-				$insertBefore = $child
-			}
 			$lastSameType = $child
-		} elseif ($childTypeIdx -gt $typeIdx -and -not $insertBefore) {
-			# First element of a later type -- insert before it
-			$insertBefore = $child
+		} elseif ($childTypeIdx -gt $typeIdx -and -not $firstLaterType) {
+			$firstLaterType = $child
 		}
+	}
+
+	$insertBefore = $firstLaterType
+	if ($lastSameType) {
+		# Right after the last element of the type: before its next element sibling, or at the end
+		$insertBefore = $lastSameType.NextSibling
+		while ($insertBefore -and $insertBefore.NodeType -ne 'Element') { $insertBefore = $insertBefore.NextSibling }
 	}
 
 	# Create element
@@ -1769,13 +2051,30 @@ foreach ($item in $items) {
 	}
 
 	# Check for .Form. pattern: Type.ObjName.Form.FormName
+	# Attribute paths: Type.ObjName.Attribute.AttrName, Type.ObjName.TabularSection.TSName.Attribute.AttrName
 	$formName = $null
+	$attrName = $null
+	$tsName = $null
 	$formIdx = $remainder.IndexOf(".Form.")
 	if ($formIdx -gt 0) {
 		$objName = $remainder.Substring(0, $formIdx)
 		$formName = $remainder.Substring($formIdx + 6) # skip ".Form."
 	} else {
-		$objName = $remainder
+		$segs = $remainder.Split(".")
+		$objName = $segs[0]
+		if ($segs.Count -gt 1) {
+			$attrKinds = @("Attribute","Реквизит")
+			$tsKinds = @("TabularSection","ТабличнаяЧасть")
+			if ($segs.Count -eq 3 -and $attrKinds -contains $segs[1]) {
+				$attrName = $segs[2]
+			} elseif ($segs.Count -eq 5 -and $tsKinds -contains $segs[1] -and $attrKinds -contains $segs[3]) {
+				$tsName = $segs[2]; $attrName = $segs[4]
+			}
+			if (-not $attrName -or ($segs | Where-Object { -not $_ })) {
+				Write-Error "Invalid format '${item}', expected 'Type.Name', 'Type.Name.Form.FormName', 'Type.Name.Attribute.AttrName' or 'Type.Name.TabularSection.TSName.Attribute.AttrName'"
+				exit 1
+			}
+		}
 	}
 
 	$dirName = $childTypeDirMap[$typeName]
@@ -1805,16 +2104,22 @@ foreach ($item in $items) {
 			$script:borrowedFiles += $targetFile
 		}
 
-		# Borrow the form
+		# Borrow the form. Only: the main attribute without the cascade, so no Объект.* binding can stay.
 		$hasBMA = [bool]$BorrowMainAttribute
-		$formFiles = Borrow-Form $typeName $objName $formName -BorrowMainAttr:$hasBMA
+		$cascadeBMA = $hasBMA -and $BorrowMainAttribute -ne "Only"
+		$formFiles = Borrow-Form $typeName $objName $formName -BorrowMainAttr:$hasBMA -KeepObjektBindings:$cascadeBMA
 		$script:borrowedFiles += $formFiles
 		$borrowedCount++
 
 		# Borrow main attribute if requested
-		if ($hasBMA) {
+		if ($cascadeBMA) {
 			Borrow-MainAttribute $typeName $objName $formName $BorrowMainAttribute
 		}
+	} elseif ($attrName) {
+		# --- Single attribute / tabular-section column borrowing ---
+		Info "Borrowing ${item}..."
+		Borrow-SingleAttribute $typeName $objName $tsName $attrName
+		$borrowedCount++
 	} else {
 		# --- Object borrowing (existing logic) ---
 		Info "Borrowing ${typeName}.${objName}..."

@@ -33,7 +33,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cf-manage/scr
 | Operation | Value Format | Description |
 |-----------|-------------|-------------|
 | `modify-property` | `Key=Value` (batch `;;`) | Change property |
-| `add-childObject` | `Type.Name` (batch `;;`) | Add object to ChildObjects |
+| `add-childObject` | `Type.Name` (batch `;;`) | Add an existing object to ChildObjects; placed by `NEW_OBJECT_POSITION` like `meta-compile` (end of its kind group by default, by name with `byName`) |
 | `remove-childObject` | `Type.Name` (batch `;;`) | Remove object from ChildObjects |
 | `add-defaultRole` | `Role.Name` or `Name` | Add default role |
 | `remove-defaultRole` | `Role.Name` or `Name` | Remove default role |

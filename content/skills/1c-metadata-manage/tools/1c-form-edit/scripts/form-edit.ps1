@@ -479,6 +479,7 @@ $script:eventSuffixMap = @{
 	"TextEditEnd" = "ОкончаниеВводаТекста"; "URLProcessing" = "ОбработкаНавигационнойСсылки"
 	"DragStart" = "НачалоПеретаскивания"; "Drag" = "Перетаскивание"
 	"DragCheck" = "ПроверкаПеретаскивания"; "Drop" = "Помещение"; "AfterDeleteRow" = "ПослеУдаления"
+	"Tuning" = "Регулирование"; "StartListChoice" = "НачалоВыбораИзСписка"
 }
 
 function Get-HandlerName {
@@ -507,7 +508,7 @@ function Assert-EditUnique {
 }
 
 $script:knownEvents = @{
-	"input"     = @("OnChange","StartChoice","ChoiceProcessing","AutoComplete","TextEditEnd","Clearing","Creating","EditTextChange")
+	"input"     = @("OnChange","StartChoice","StartListChoice","ChoiceProcessing","AutoComplete","TextEditEnd","Clearing","Creating","EditTextChange","Tuning","Opening")
 	"check"     = @("OnChange")
 	"label"     = @("Click","URLProcessing")
 	"labelField"= @("OnChange","StartChoice","ChoiceProcessing","Click","URLProcessing","Clearing")

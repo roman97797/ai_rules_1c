@@ -2257,10 +2257,12 @@ EVENT_SUFFIX_MAP = {
     "DragCheck": "\u041f\u0440\u043e\u0432\u0435\u0440\u043a\u0430\u041f\u0435\u0440\u0435\u0442\u0430\u0441\u043a\u0438\u0432\u0430\u043d\u0438\u044f",
     "Drop": "\u041f\u043e\u043c\u0435\u0449\u0435\u043d\u0438\u0435",
     "AfterDeleteRow": "\u041f\u043e\u0441\u043b\u0435\u0423\u0434\u0430\u043b\u0435\u043d\u0438\u044f",
+    "Tuning": "\u0420\u0435\u0433\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435",
+    "StartListChoice": "\u041d\u0430\u0447\u0430\u043b\u043e\u0412\u044b\u0431\u043e\u0440\u0430\u0418\u0437\u0421\u043f\u0438\u0441\u043a\u0430",
 }
 
 KNOWN_EVENTS = {
-    "input": ["OnChange", "StartChoice", "ChoiceProcessing", "AutoComplete", "TextEditEnd", "Clearing", "Creating", "EditTextChange"],
+    "input": ["OnChange", "StartChoice", "StartListChoice", "ChoiceProcessing", "AutoComplete", "TextEditEnd", "Clearing", "Creating", "EditTextChange", "Tuning", "Opening"],
     "check": ["OnChange"],
     "radio": ["OnChange"],
     "label": ["Click", "URLProcessing"],
@@ -3712,6 +3714,9 @@ GENERIC_SCALARS = [
     ('AllowInputEmptyMultipleValues', 'allowInputEmptyMultipleValues', 'bool'),
     ('BehaviorOnHorizontalCompression', 'behaviorOnHorizontalCompression', 'value'),
 ]
+# Local: pass-through scalars are known keys — markNegatives, threeState, … were written to
+# Form.xml and still reported «ignored» because KNOWN_KEYS did not list them.
+GENERIC_SCALAR_KEYS = {key for _tag, key, _kind in GENERIC_SCALARS}
 
 
 def emit_generic_scalars(lines, el, indent):
@@ -4091,7 +4096,8 @@ def emit_element(lines, el, indent, in_cmd_bar=False):
     for p_name in el.keys():
         if p_name.startswith('_'):
             continue
-        if p_name not in KNOWN_KEYS and p_name not in APPEARANCE_SPEC and p_name not in APPEARANCE_SYNONYMS:
+        if p_name not in KNOWN_KEYS and p_name not in APPEARANCE_SPEC and p_name not in APPEARANCE_SYNONYMS \
+                and p_name not in GENERIC_SCALAR_KEYS:
             print(f"WARNING: Element '{el.get(type_key, '')}': unknown key '{p_name}' -- ignored. Check SKILL.md for valid keys.", file=sys.stderr)
 
     name = get_element_name(el, type_key)

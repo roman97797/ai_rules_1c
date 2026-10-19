@@ -2670,6 +2670,8 @@ $script:eventSuffixMap = @{
 	"DragCheck"            = "ПроверкаПеретаскивания"
 	"Drop"                 = "Помещение"
 	"AfterDeleteRow"       = "ПослеУдаления"
+	"Tuning"               = "Регулирование"
+	"StartListChoice"      = "НачалоВыбораИзСписка"
 }
 
 function Get-HandlerName {
@@ -2690,7 +2692,7 @@ function Get-ElementName {
 }
 
 $script:knownEvents = @{
-	"input"     = @("OnChange","StartChoice","ChoiceProcessing","AutoComplete","TextEditEnd","Clearing","Creating","EditTextChange")
+	"input"     = @("OnChange","StartChoice","StartListChoice","ChoiceProcessing","AutoComplete","TextEditEnd","Clearing","Creating","EditTextChange","Tuning","Opening")
 	"check"     = @("OnChange")
 	"radio"     = @("OnChange")
 	"label"     = @("Click","URLProcessing")
@@ -3228,6 +3230,9 @@ function Emit-Element {
 	foreach ($k in $script:appearanceSpec.Keys)     { $knownKeys[$k] = 1 }
 	foreach ($k in $script:appearanceSynonyms.Keys) { $knownKeys[$k] = 1 }
 	foreach ($k in $script:propSynonyms.Keys)       { $knownKeys[$k] = 1 }
+	# Local: pass-through scalars are emitted from $script:genericScalars — a key added there
+	# and not here (markNegatives, threeState, …) was written to Form.xml and still reported «ignored».
+	foreach ($s in $script:genericScalars)          { $knownKeys[$s.Key] = 1 }
 	foreach ($p in $el.PSObject.Properties) {
 		if ($p.Name -like '_*') { continue }  # внутренние маркеры (напр. _dynList)
 		if (-not $knownKeys.ContainsKey($p.Name)) {

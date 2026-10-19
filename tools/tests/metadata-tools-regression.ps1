@@ -713,6 +713,40 @@ Register-Case 'meta-compile: NEW_OBJECT_POSITION=end is the backward-compatible 
     Assert-Equal $newEnum $enums[2].Name 'explicit end must behave like the default'
 }
 
+Register-Case 'cf-edit add-childObject: default position appends after the last object of the type' {
+    param($Work)
+    Copy-Fixture 'config-dump' $Work "`n"
+    $configPath = Join-Path $Work 'Configuration.xml'
+    $newEnum = (Read-JsonFixture 'meta-compile\new-enum.json').name
+    # add-childObject only registers an object whose file exists.
+    New-Item -ItemType Directory -Path (Join-Path $Work 'Enums') -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $Work "Enums\$newEnum.xml"), '<MetaDataObject/>', (New-Object System.Text.UTF8Encoding($true)))
+
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-cf-manage\scripts\cf-edit.ps1') @('-ConfigPath', $configPath, '-Operation', 'add-childObject', '-Value', "Enum.$newEnum", '-NoValidate') $Work
+    Assert-Equal 0 $run.ExitCode "cf-edit exit code (stderr: $($run.StdErr))"
+
+    $enums = @(Get-ChildObjectEntries $configPath | Where-Object { $_.Tag -eq 'Enum' })
+    Assert-Equal 3 $enums.Count 'enum entry count'
+    Assert-Equal $newEnum $enums[2].Name 'default position must append after the last Enum, as Configurator does'
+}
+
+Register-Case 'cf-edit add-childObject: NEW_OBJECT_POSITION=byName inserts inside the type group' {
+    param($Work)
+    Copy-Fixture 'config-dump' $Work "`n"
+    Write-DevEnv $Work "NEW_OBJECT_POSITION=byName`r`n"
+    $configPath = Join-Path $Work 'Configuration.xml'
+    $newEnum = (Read-JsonFixture 'meta-compile\new-enum.json').name
+    New-Item -ItemType Directory -Path (Join-Path $Work 'Enums') -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $Work "Enums\$newEnum.xml"), '<MetaDataObject/>', (New-Object System.Text.UTF8Encoding($true)))
+
+    $run = Invoke-Tool (Join-Path $ToolsDir '1c-cf-manage\scripts\cf-edit.ps1') @('-ConfigPath', $configPath, '-Operation', 'add-childObject', '-Value', "Enum.$newEnum", '-NoValidate') $Work
+    Assert-Equal 0 $run.ExitCode "cf-edit exit code (stderr: $($run.StdErr))"
+
+    $enums = @(Get-ChildObjectEntries $configPath | Where-Object { $_.Tag -eq 'Enum' })
+    Assert-Equal 3 $enums.Count 'enum entry count'
+    Assert-Equal $newEnum $enums[1].Name 'byName must place the new enum between the two existing ones'
+}
+
 Register-Case 'meta-compile: an invalid .dev.env value resolves to end, not to the fallback' {
     param($Work)
     Copy-Fixture 'config-dump' $Work "`n"

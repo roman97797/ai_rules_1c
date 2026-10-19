@@ -1,0 +1,121 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:cmi="http://v8.1c.ru/8.2/managed-application/cmi" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xen="http://v8.1c.ru/8.3/xcf/enums" xmlns:xpr="http://v8.1c.ru/8.3/xcf/predef" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<Document uuid="d0d0d0d0-0000-4000-8000-000000000001">
+		<InternalInfo>
+			<xr:GeneratedType name="DocumentObject.Zakaz" category="Object">
+				<xr:TypeId>d0d0d0d0-0000-4000-8000-0000000000a1</xr:TypeId>
+				<xr:ValueId>d0d0d0d0-0000-4000-8000-0000000000a2</xr:ValueId>
+			</xr:GeneratedType>
+			<xr:GeneratedType name="DocumentRef.Zakaz" category="Ref">
+				<xr:TypeId>d0d0d0d0-0000-4000-8000-0000000000a3</xr:TypeId>
+				<xr:ValueId>d0d0d0d0-0000-4000-8000-0000000000a4</xr:ValueId>
+			</xr:GeneratedType>
+		</InternalInfo>
+		<Properties>
+			<Name>Zakaz</Name>
+			<Synonym>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Заказ</v8:content>
+				</v8:item>
+			</Synonym>
+			<Comment/>
+			<UseStandardCommands>true</UseStandardCommands>
+			<Numerator/>
+			<NumberType>String</NumberType>
+			<NumberLength>11</NumberLength>
+			<NumberAllowedLength>Variable</NumberAllowedLength>
+			<NumberPeriodicity>Year</NumberPeriodicity>
+			<CheckUnique>true</CheckUnique>
+			<Autonumbering>true</Autonumbering>
+			<DefaultObjectForm>Document.Zakaz.Form.DocumentForm</DefaultObjectForm>
+			<Posting>Allow</Posting>
+			<RegisterRecords/>
+		</Properties>
+		<ChildObjects>
+			<Attribute uuid="a1a1a1a1-0000-4000-8000-000000000001">
+				<Properties>
+					<Name>Kontragent</Name>
+					<Synonym>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Контрагент</v8:content>
+						</v8:item>
+					</Synonym>
+					<Comment/>
+					<Type>
+						<v8:Type>cfg:CatalogRef.Kontragenty</v8:Type>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<FillChecking>ShowError</FillChecking>
+				</Properties>
+			</Attribute>
+			<Attribute uuid="a1a1a1a1-0000-4000-8000-000000000002">
+				<Properties>
+					<Name>Summa</Name>
+					<Synonym/>
+					<Comment/>
+					<Type>
+						<v8:Type>xs:decimal</v8:Type>
+						<v8:NumberQualifiers>
+							<v8:Digits>15</v8:Digits>
+							<v8:FractionDigits>2</v8:FractionDigits>
+							<v8:AllowedSign>Any</v8:AllowedSign>
+						</v8:NumberQualifiers>
+					</Type>
+					<PasswordMode>false</PasswordMode>
+					<FillChecking>DontCheck</FillChecking>
+				</Properties>
+			</Attribute>
+			<TabularSection uuid="7a7a7a7a-0000-4000-8000-000000000001">
+				<InternalInfo>
+					<xr:GeneratedType name="DocumentTabularSection.Zakaz.Tovary" category="TabularSection">
+						<xr:TypeId>7a7a7a7a-0000-4000-8000-0000000000b1</xr:TypeId>
+						<xr:ValueId>7a7a7a7a-0000-4000-8000-0000000000b2</xr:ValueId>
+					</xr:GeneratedType>
+					<xr:GeneratedType name="DocumentTabularSectionRow.Zakaz.Tovary" category="TabularSectionRow">
+						<xr:TypeId>7a7a7a7a-0000-4000-8000-0000000000b3</xr:TypeId>
+						<xr:ValueId>7a7a7a7a-0000-4000-8000-0000000000b4</xr:ValueId>
+					</xr:GeneratedType>
+				</InternalInfo>
+				<Properties>
+					<Name>Tovary</Name>
+					<Synonym/>
+					<Comment/>
+					<ToolTip/>
+					<FillChecking>DontCheck</FillChecking>
+				</Properties>
+				<ChildObjects>
+					<Attribute uuid="a2a2a2a2-0000-4000-8000-000000000001">
+						<Properties>
+							<Name>Nomenklatura</Name>
+							<Synonym/>
+							<Comment/>
+							<Type>
+								<v8:Type>cfg:CatalogRef.Nomenklatura</v8:Type>
+							</Type>
+							<PasswordMode>false</PasswordMode>
+						</Properties>
+					</Attribute>
+					<Attribute uuid="a2a2a2a2-0000-4000-8000-000000000002">
+						<Properties>
+							<Name>Kolichestvo</Name>
+							<Synonym/>
+							<Comment/>
+							<Type>
+								<v8:Type>xs:decimal</v8:Type>
+								<v8:NumberQualifiers>
+									<v8:Digits>15</v8:Digits>
+									<v8:FractionDigits>3</v8:FractionDigits>
+									<v8:AllowedSign>Nonnegative</v8:AllowedSign>
+								</v8:NumberQualifiers>
+							</Type>
+							<PasswordMode>false</PasswordMode>
+						</Properties>
+					</Attribute>
+				</ChildObjects>
+			</TabularSection>
+			<Form>DocumentForm</Form>
+		</ChildObjects>
+	</Document>
+</MetaDataObject>

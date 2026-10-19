@@ -1,5 +1,7 @@
-﻿# cfe-validate v1.4 — Validate 1C configuration extension structure (CFE)
+﻿# cfe-validate v1.5 — Validate 1C configuration extension structure (CFE)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: a borrowed form may have no Module.bsl; check 12 reports a missing CommonPicture or
+#        a StyleItem outside the platform style list as an error.
 param(
 	[Parameter(Mandatory)]
 	[Alias('Path')]
@@ -761,6 +763,7 @@ foreach ($fi in $script:formList) {
 	$ctx = "$($fi.TypeName).$($fi.ObjName).Form.$($fi.FormName)"
 
 	# Validate form metadata XML
+	$isBorrowed = $false
 	if (Test-Path $formMetaFile) {
 		try {
 			$fmDoc = New-Object System.Xml.XmlDocument
@@ -804,8 +807,9 @@ foreach ($fi in $script:formList) {
 		continue
 	}
 
-	# Module.bsl should exist
-	if (-not (Test-Path $moduleBslFile)) {
+	# Module.bsl should exist for an own form. A borrowed form has none until its module has code
+	# (Configurator does not write an empty one).
+	if (-not $isBorrowed -and -not (Test-Path $moduleBslFile)) {
 		Report-Warn "11. ${ctx}: Ext/Form/Module.bsl missing"
 	}
 
@@ -850,9 +854,13 @@ $depCheckCount = 0
 foreach ($bf in $script:borrowedFormsWithTree) {
 	$raw = $bf.RawText
 	$ctx = $bf.Context
+	# The platform refuses to load a form that references a configuration object the extension does
+	# not borrow: a CommonPicture or a StyleItem outside the platform list is an error. Enum values
+	# are not decided here and stay warnings.
+	$missingErrors = @()
 	$missingItems = @()
 
-	# CommonPicture references
+	# CommonPicture references (always configuration objects; platform pictures are StdPicture.*)
 	$cpRefs = @{}
 	foreach ($m in [regex]::Matches($raw, '<xr:Ref>CommonPicture\.(\w+)</xr:Ref>')) {
 		$cpRefs[$m.Groups[1].Value] = $true
@@ -861,11 +869,11 @@ foreach ($bf in $script:borrowedFormsWithTree) {
 	foreach ($cpName in $cpRefs.Keys) {
 		$depCheckCount++
 		if (-not $cpIndex -or -not $cpIndex.ContainsKey($cpName)) {
-			$missingItems += "CommonPicture.${cpName}"
+			$missingErrors += "CommonPicture.${cpName}"
 		}
 	}
 
-	# StyleItem references
+	# StyleItem references (platform style items have Latin names; a Cyrillic one is the configuration's)
 	$siRefs = @{}
 	foreach ($m in [regex]::Matches($raw, 'style:([A-Za-z\u0410-\u044F\u0401\u0451_][A-Za-z0-9\u0410-\u044F\u0401\u0451_]*)')) {
 		$siRefs[$m.Groups[1].Value] = $true
@@ -875,7 +883,7 @@ foreach ($bf in $script:borrowedFormsWithTree) {
 		$depCheckCount++
 		if ($platformStyleItems.ContainsKey($siName)) { continue }
 		if (-not $siIndex -or -not $siIndex.ContainsKey($siName)) {
-			$missingItems += "StyleItem.${siName}"
+			$missingErrors += "StyleItem.${siName}"
 		}
 	}
 
@@ -895,6 +903,10 @@ foreach ($bf in $script:borrowedFormsWithTree) {
 		}
 	}
 
+	foreach ($mi in $missingErrors) {
+		Report-Error "12. ${ctx}: references ${mi} not borrowed in extension (the platform refuses to load the form)"
+		$check12Ok = $false
+	}
 	foreach ($mi in $missingItems) {
 		Report-Warn "12. ${ctx}: references ${mi} not borrowed in extension"
 		$check12Ok = $false

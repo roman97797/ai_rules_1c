@@ -50,10 +50,53 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 | `ExtensionPath` | Path to extension directory (required) |
 | `ConfigPath` | Path to source configuration (required) |
 | `Object` | What to borrow (required), batch via `;;` |
+| `BorrowMainAttribute` | Only with a form in `Object`: `Form` (default) / `All` / `Only` — see *Main attribute* below |
 
-Format: `Catalog.X`, `CommonModule.Y`, `Document.Z`. All 44 object types supported. Batch: `"Catalog.X ;; CommonModule.Y ;; Enum.Z"`.
+`Object` formats (Russian type and kind names — `Документ`, `Реквизит`, `ТабличнаяЧасть` — are accepted too):
+
+| Format | Borrows |
+|--------|---------|
+| `Type.Name` — `Catalog.X`, `CommonModule.Y`, `Document.Z` | the object; all 44 object types |
+| `Type.Name.Form.FormName` | a form; the parent object is borrowed first when it is not yet |
+| `Type.Name.Attribute.AttrName` | one attribute of the object |
+| `Type.Name.TabularSection.TSName.Attribute.AttrName` | one tabular-section column |
+
+Batch: `"Catalog.X ;; CommonModule.Y ;; Document.Z.Attribute.W"`.
 
 Creates XML files with `ObjectBelonging=Adopted` and `ExtendedConfigurationObject`, adds to ChildObjects.
+
+### What the borrowed XML looks like (Configurator, format 2.20)
+
+- **Extension `ChildObjects`** — a new entry goes to the end of its type group, as Configurator appends a borrowed object; it is not sorted by name. In the main configuration `cf-edit` and `meta-compile` place a new entry by `NEW_OBJECT_POSITION` (end of the group by default, by name — APK:1108 — with `byName`).
+- **Document** — `Properties` end with an empty `<RegisterRecords/>`.
+- **One attribute or column** — `ExtendedConfigurationObject` is the source attribute's uuid and `<Type>` is the source attribute's `<Type>`. A column brings its tabular section (adopted, with its generated types, without the other columns). The objects named in the type are borrowed as shells; nothing else cascades. Repeating the call changes nothing.
+- **Form metadata** `Forms/<Form>.xml` — the form has its own `Ext/Form.xml`, and Configurator records that as the `Form` / `Extended` property state in `InternalInfo` (block below).
+- **Form `Ext/Form.xml`** — every form property before `AutoCommandBar` is copied into the form and into `BaseForm`, including `CommandSet` with its `ExcludedCommand` list and the properties after it (`AutoTime`, `UsePostingMode`, `RepostOnWrite`, …). An element's `CommandSet` (for example a table with `Add` and `Copy` excluded) keeps its `ExcludedCommand` list in both parts; an empty `CommandSet` is never written, since Configurator drops it on load. Data paths are stripped the same way in both parts.
+- **Form module** — no `Ext/Form/Module.bsl` until the module has code (`cfe-patch-method` creates it). An existing module is kept on re-borrow.
+- **Style item on a form** — a `style:` reference is borrowed when that `StyleItem` exists in the source configuration. If it is not in the extension and it is not a platform style item (`FormTextColor`, `NormalTextFont`, and the rest of the list in `cfe-validate`), the reference is removed from the form and from `BaseForm`. Leaving it would make the extension fail to load with `Configuration.xml`.
+- **Format version** — read from `Configuration.xml` by character length, not file byte length. A short file with Cyrillic used to abort `cfe-borrow` before any borrow.
+
+`InternalInfo` of a borrowed form's metadata:
+
+```xml
+<InternalInfo>
+	<xr:PropertyState>
+		<xr:Property>Form</xr:Property>
+		<xr:State>Extended</xr:State>
+	</xr:PropertyState>
+</InternalInfo>
+```
+
+### Main attribute `Объект` — `-BorrowMainAttribute`
+
+| Value | Form attribute `Объект` | Object attributes borrowed with it | `Объект.*` data paths |
+|-------|-------------------------|------------------------------------|-----------------------|
+| *(not given)* | — | none | stripped |
+| `Form` | added | those the form's data paths and `<Field>` references name, with their type objects and deep-path sub-attributes | kept |
+| `All` | added | all attributes and tabular sections, with their type objects | kept |
+| `Only` | added | none | stripped, in the form and in `BaseForm` alike |
+
+`Only` together with `Type.Name.Attribute.X` items borrows the main attribute and exactly the attributes you name, without the cascade; add the bindings you need to the form afterwards.
 
 For an already borrowed object, preserve its existing identifier and base-object link; do not recreate it to move/rename the source tree or to hide a mapping mismatch. Resolve the intended base and target before any change to the borrowing relationship.
 
@@ -160,7 +203,7 @@ Narrow the scope with `-ModulePath` (one module) or `-ModulePath` + `-MethodName
 powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/scripts/cfe-validate.ps1 -ExtensionPath src
 ```
 
-### Checks (9 steps)
+### Checks (13 steps)
 
 | # | Check | Severity |
 |---|-------|----------|
@@ -168,11 +211,15 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-cfe-manage/sc
 | 2 | InternalInfo: 7 ContainedObject, valid ClassId | ERROR |
 | 3 | Extension properties: ObjectBelonging=Adopted, Name, Purpose, NamePrefix, KeepMapping | ERROR |
 | 4 | Enum values: CompatibilityMode, DefaultRunMode, ScriptVariant, InterfaceCompatibilityMode | ERROR |
-| 5 | ChildObjects: valid types (44), no duplicates, canonical order | ERROR/WARN |
+| 5 | ChildObjects: valid types (44), no duplicates, canonical type order | ERROR/WARN |
 | 6 | DefaultLanguage references Language in ChildObjects | ERROR |
 | 7 | Language files exist | WARN |
 | 8 | Object directories exist | WARN |
 | 9 | Borrowed objects: ObjectBelonging=Adopted, ExtendedConfigurationObject UUID | ERROR/WARN |
+| 10 | Borrowed sub-items: attributes, tabular sections with generated types, enum values, form metadata files | ERROR |
+| 11 | Borrowed forms: ExtendedConfigurationObject, FormType, `Ext/Form.xml`, `BaseForm` version; `Module.bsl` is expected only for an own form | ERROR/WARN |
+| 12 | Form dependencies not borrowed: a `CommonPicture` or a `StyleItem` outside the platform style list — ERROR, the platform refuses to load the form; an enum or enum value — WARN | ERROR/WARN |
+| 13 | `TypeLink` with a human-readable `Items.*` path | WARN |
 
 Exit code: 0 = OK, 1 = errors.
 
@@ -185,7 +232,7 @@ This check does not compare the extension with its base configuration.
 
 ### What `cfe-validate` cannot see — the platform check is a separate step
 
-All nine checks read **source**: XML shape, ClassIds, ChildObjects ordering, adopted-object markers. They are silent about the one failure mode that actually breaks a base — an interceptor whose target method no longer exists in the main configuration. `&Вместо ПриЗаписи` against a method the vendor renamed is perfectly valid XML and perfectly valid BSL; the platform rejects it only at apply time, and an `&После` in the same position may just stop firing with no error at all.
+All checks read **source**: XML shape, ClassIds, ChildObjects ordering, adopted-object markers. They are silent about the one failure mode that actually breaks a base — an interceptor whose target method no longer exists in the main configuration. `&Вместо ПриЗаписи` against a method the vendor renamed is perfectly valid XML and perfectly valid BSL; the platform rejects it only at apply time, and an `&После` in the same position may just stop firing with no error at all.
 
 Before loading an extension into any infobase, run the platform's own ladder — canon `content/rules/designer-batch-checks.md`:
 

@@ -1,5 +1,6 @@
-﻿# cf-edit v1.11 — Edit 1C configuration root (Configuration.xml)
+﻿# cf-edit v1.12 — Edit 1C configuration root (Configuration.xml)
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
+# Local: add-childObject places a new entry by NEW_OBJECT_POSITION (end by default, as Configurator).
 param(
 	[Parameter(Mandatory)][Alias('Path')][string]$ConfigPath,
 	[string]$DefinitionFile,
@@ -66,6 +67,69 @@ function Find-V8Project([string]$startDir) {
 		$d = $parent
 	}
 	return $null
+}
+# Where add-childObject puts a new <ChildObjects> entry inside its kind group: NEW_OBJECT_POSITION,
+# resolved as in meta-compile. end (default) — after the last object of the kind, as Configurator
+# does; byName — by name (APK:1108). .dev.env decides when the key is set (an unknown value = end);
+# otherwise the upstream .v8-project.json newObjectPosition.
+function Get-NewObjectPosition([string]$cfgDir) {
+	try {
+		if (-not $cfgDir) { $cfgDir = "." }
+		$__devEnvHelper = Join-Path $PSScriptRoot '../../_common/DevEnv.ps1'
+		if (Test-Path $__devEnvHelper) {
+		    . $__devEnvHelper
+		    $__devEnvPos = (Get-1CDevEnvValue 'NEW_OBJECT_POSITION')
+		    if ($__devEnvPos) {
+		        if ($__devEnvPos.ToLower() -eq 'byname') { return "byName" }
+		        return "end"
+		    }
+		}
+		$pj = Find-V8Project (Get-Location).Path
+		if (-not $pj) { $pj = Find-V8Project ([System.IO.Path]::GetFullPath($cfgDir)) }
+		if (-not $pj) { return "end" }
+		$proj = Get-Content -Raw $pj | ConvertFrom-Json
+		$projDir = [System.IO.Path]::GetDirectoryName($pj)
+		$cfgFull = [System.IO.Path]::GetFullPath($cfgDir).TrimEnd('\', '/')
+		if ($proj.databases) {
+			foreach ($db in $proj.databases) {
+				if ($db.configSrc -and $db.newObjectPosition) {
+					$src = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($projDir, $db.configSrc)).TrimEnd('\', '/')
+					if ($cfgFull -eq $src -or $cfgFull.StartsWith($src + [System.IO.Path]::DirectorySeparatorChar)) {
+						if ("$($db.newObjectPosition)" -eq "byName") { return "byName" }
+						return "end"
+					}
+				}
+			}
+		}
+		if ("$($proj.newObjectPosition)" -eq "byName") { return "byName" }
+		return "end"
+	} catch { return "end" }
+}
+# Kinds whose tree order carries meaning are never sorted by name (same list as meta-compile).
+function Test-OrderSensitiveType([string]$typeName) {
+	return @("CommonAttribute", "Subsystem", "CommandGroup", "Language") -ccontains $typeName
+}
+# Name order of the Configurator tree, as in meta-compile: case-insensitive, '_' before digits
+# before letters, letters by code (Latin before Cyrillic), yo as ye; ordinal tie-break. -1 | 0 | 1.
+function Compare-MetadataNames([string]$a, [string]$b) {
+	$keys = @("", "")
+	$names = @($a, $b)
+	for ($i = 0; $i -lt 2; $i++) {
+		$sb = New-Object System.Text.StringBuilder
+		foreach ($ch in $names[$i].ToLowerInvariant().ToCharArray()) {
+			if ($ch -eq [char]0x0451) { $ch = [char]0x0435 }
+			if ([char]::IsDigit($ch)) { [void]$sb.Append('1') }
+			elseif ([char]::IsLetter($ch)) { [void]$sb.Append('2') }
+			else { [void]$sb.Append('0') }
+			[void]$sb.Append($ch)
+		}
+		$keys[$i] = $sb.ToString()
+	}
+	$r = [string]::CompareOrdinal($keys[0], $keys[1])
+	if ($r -eq 0) { $r = [string]::CompareOrdinal($a, $b) }
+	if ($r -lt 0) { return -1 }
+	if ($r -gt 0) { return 1 }
+	return 0
 }
 function Get-EditMode([string]$cfgDir) {
 	try {
@@ -413,6 +477,7 @@ function Do-AddChildObject([string]$batchVal) {
 		Expand-SelfClosingElement $script:childObjsEl $cfgIndent
 	}
 	$childIndent = Get-ChildIndent $script:childObjsEl
+	$position = Get-NewObjectPosition $script:configDir
 
 	foreach ($item in $items) {
 		$dotIdx = $item.IndexOf(".")
@@ -470,6 +535,7 @@ To create a new $typeName, use $hintSkill (auto-registers in Configuration.xml):
 		$lastSameType = $null
 		$lastPrecedingType = $null
 		$currentTypeIdx = -1
+		$byName = ($position -eq "byName") -and -not (Test-OrderSensitiveType $typeName)
 
 		foreach ($child in $script:childObjsEl.ChildNodes) {
 			if ($child.NodeType -ne 'Element') { continue }
@@ -477,9 +543,9 @@ To create a new $typeName, use $hintSkill (auto-registers in Configuration.xml):
 			if ($childTypeIdx -lt 0) { continue }
 
 			if ($child.LocalName -eq $typeName) {
-				# Same type — check alphabetical order
-				if ($child.InnerText -gt $objNameVal -and -not $insertBefore) {
-					# Insert before this element (alphabetical)
+				# Same type — by name only under NEW_OBJECT_POSITION=byName; by default the new entry
+				# goes after the last one of its type, as Configurator does
+				if ($byName -and -not $insertBefore -and (Compare-MetadataNames $child.InnerText $objNameVal) -gt 0) {
 					$insertBefore = $child
 				}
 				$lastSameType = $child
