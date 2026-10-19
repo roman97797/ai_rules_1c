@@ -416,21 +416,26 @@ if ($Grouped) {
 		$title = $groupTitle[$typeName]
 		if (-not $title) { $title = $typeName }
 		Write-Host "**$title**"
+		Write-Host ""
 		foreach ($objectName in ($byType[$typeName] | Sort-Object)) {
+			# Blank line after each item: Markdown soft-breaks collapse
+			# consecutive "N. …" lines (especially when N continues past 1
+			# after a group heading) into one paragraph in chat UIs.
 			Write-Host "$index. $objectName"
+			Write-Host ""
 			$index++
 		}
-		Write-Host ""
 		[void]$printed.Add($typeName)
 	}
 	foreach ($typeName in ($byType.Keys | Sort-Object)) {
 		if ($printed.Contains($typeName)) { continue }
 		Write-Host "**$typeName**"
+		Write-Host ""
 		foreach ($objectName in ($byType[$typeName] | Sort-Object)) {
 			Write-Host "$index. $objectName"
+			Write-Host ""
 			$index++
 		}
-		Write-Host ""
 	}
 	exit 0
 }
