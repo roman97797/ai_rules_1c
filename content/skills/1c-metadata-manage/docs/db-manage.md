@@ -238,7 +238,7 @@ Applies main configuration changes to the database configuration (`/UpdateDBCfg`
 |-----------------|-------------|
 | `-Extension <name>` | Update extension |
 | `-AllExtensions` | Update all extensions |
-| `-Dynamic <+/->` | `+` dynamic update, `-` disable |
+| `-Dynamic <auto/disable>` | `auto` dynamic update, `disable` turn it off (`+`/`-` still accepted, but a lone `-` never reaches the script through `powershell.exe -File` — PowerShell 5.1 exits silently; use `disable` or `-Dynamic:-`) |
 | `-Server` | Server-side update |
 | `-WarningsAsErrors` | Treat warnings as errors |
 

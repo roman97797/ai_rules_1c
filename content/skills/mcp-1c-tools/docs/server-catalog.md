@@ -12,13 +12,13 @@
 | `cognee`, `openviking` *(optional)* | Memory providers | [memory-providers.md](memory-providers.md) |
 | `1c-data-mcp` | Live-IB execution over `hs/mcp` | [1c-data-mcp.md](1c-data-mcp.md) |
 | `1c-qa` | QA MCP: test manager driving a 1C test client — UI checks under `UI_TESTING` | `content/skills/1c-qa-testing/SKILL.md` |
+| `1c-kd20` *(conditional)* | «Конвертация данных» 2.0 exchange rules: matching, authoring, validation by the БСП runtime, registration rules, review of existing rules, optional sandbox checks; read-only EnterpriseData (КД 3) exchange manager checks; profiles and launch strings of the two exchange bases. Installed separately; only for exchange-rule tasks | [mcp-conversion-data20.md](mcp-conversion-data20.md) |
 | `edt-mcp` *(conditional)* | Live EDT workspace | [edt-mcp.md](edt-mcp.md) |
 
 ### Optional pre-alpha servers
 
-These are experimental projects, separate from the eight main servers above and not required by normal development gates. Client aliases vary; use the tools actually exposed in this session. Read their catalog only for a task that needs them; do not install, start a client, replay UI actions or write conversion files merely to check availability.
+These are experimental projects, separate from the nine main servers above and not required by normal development gates. Client aliases vary; use the tools actually exposed in this session. Read their catalog only for a task that needs them; do not install, start a client, replay UI actions or write conversion files merely to check availability.
 
 | Project / runtime server name | Purpose | Details |
 |---|---|---|
 | `MCP_Test` / `1C Visual UI Test` | Testing knowledge base, scenario preparation, test-client processes and UI replay | [mcp-test.md](mcp-test.md) |
-| `MCP_ConversionData20` / `1C Конвертация данных 2.0 — разработка правил обмена` | Metadata mapping and conversion-rule authoring/validation/export | [mcp-conversion-data20.md](mcp-conversion-data20.md) |

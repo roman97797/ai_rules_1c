@@ -176,7 +176,7 @@ Missing, empty or invalid values are `unknown`, not proof that EDT is absent. On
 | `TOOL_WINDOWS_MCP` | Windows-MCP desktop automation |
 | `TOOL_QA` | `1c-qa` (QA MCP): UI checks in the 1C thin client |
 | `TOOL_UI_TEST` | Optional `MCP_Test` / `1C Visual UI Test` |
-| `TOOL_CONVERSION` | Optional `MCP_ConversionData20` |
+| `TOOL_CONVERSION` | `1c-kd20` (KD20): «Конвертация данных» 2.0 exchange rules and read-only EnterpriseData checks; installed separately |
 
 Examples: `TOOL_COGNEE=off` excludes Cognee while other memory providers remain eligible; `TOOL_SYNTAX=required` blocks syntax verification when its tool is missing; `TOOL_AGENT_BROWSER=off` selects an eligible browser fallback without an installation question. No key switches off the shipped metadata/IB/repository procedures. `rtk` remains a user-global shell proxy managed by `/install-rtk`, not project tool routing.
 

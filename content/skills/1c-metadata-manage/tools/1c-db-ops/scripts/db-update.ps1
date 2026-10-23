@@ -1,4 +1,4 @@
-﻿# db-update v1.13 — Update 1C database configuration
+﻿# db-update v1.14 — Update 1C database configuration
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -34,7 +34,9 @@
     Обновить все расширения
 
 .PARAMETER Dynamic
-    Динамическое обновление: "+" включить, "-" отключить
+    Динамическое обновление: "auto" (или "+") включить, "disable" (или "-") отключить.
+    Через powershell.exe -File одиночный "-" не доходит до скрипта (PowerShell 5.1
+    завершается без вывода) — там используйте "disable" или -Dynamic:-
 
 .PARAMETER Server
     Обновление на стороне сервера
@@ -82,7 +84,7 @@ param(
     [switch]$AllExtensions,
 
     [Parameter(Mandatory=$false)]
-    [ValidateSet("+", "-")]
+    [ValidateSet("+", "-", "auto", "disable")]
     [string]$Dynamic,
 
     [Parameter(Mandatory=$false)]
@@ -100,6 +102,10 @@ param(
 
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# auto/disable are the -File-safe spellings of +/- (ibcmd --dynamic=auto|disable)
+if ($Dynamic -eq "auto") { $Dynamic = "+" }
+elseif ($Dynamic -eq "disable") { $Dynamic = "-" }
 
 function Protect-Secrets {
     # Redact literal secret values from a display string (String.Replace is literal, not regex).
