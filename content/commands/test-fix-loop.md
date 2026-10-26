@@ -5,7 +5,7 @@ argumentHint: "[<scenario / task description>] [--iterations N]"
 
 # /test-fix-loop — deploy → test → fix → redeploy until green
 
-Run the requested test scenarios against the test infobase and, when they fail, close the loop: diagnose → fix the code → redeploy → re-test — until every scenario passes or the iteration budget runs out. This is the *outer* loop over test failures; the *inner* retry loop for deploy errors stays where it lives (`/update1cbase → Update retry loop`) and does not consume test iterations.
+Run the requested test scenarios against the test infobase and, when they fail, close the loop: diagnose → fix the code → redeploy → re-test — until every scenario passes or the iteration budget runs out. This is the *outer* loop over test failures; the *inner* retry loops for deploy errors stay where they live (`/update1cbase → Load retry loop`, `/updatedbcfg → Apply retry loop`) and do not consume test iterations.
 
 **Strictly opt-in.** This loop runs only when invoked as a command or explicitly requested in words; `UI_TESTING=essential` / `auto` enable routine UI verification, not this repeated deploy/fix loop. Invoking it **is** the explicit UI-test request that `manual` requires. Effective `UI_TESTING=off` still blocks: point to `/uitests essential`, `/uitests on` or `/uitests manual`; an explicit enable-and-run instruction satisfies the switch without a second confirmation. Execution prerequisites still apply. Web-client iterations are token-expensive — on that route state the expected cost once at the start.
 

@@ -8,9 +8,9 @@ Deploy the current configuration to the test infobase defined in `.dev.env`, the
 
 Resolve project, main/named-extension target and source root through `content/rules/extension-workspace.md` before substitution. Keep that target through deployment, applicability checks and scenarios; a single-extension task uses its own root, and does not rewrite the primary `EXTENSION_NAME`. MCP-backed test preparation must use the same verified project/layer; confirm the live test connection is the intended infobase before attributing its results.
 
-When the user asks to deploy the full snapshot ("all" / "with extensions"), resolve inventory even if `EXTENSION_NAMES` is empty, then run Steps 2–3 as main followed by each selected extension per `/update1cbase → Full-snapshot mode` (`content/commands/update1cbase.md`). Confirmed no extensions means main only; a stored single-extension default cannot narrow `all`.
+When the user asks to deploy the full snapshot ("all" / "with extensions"), resolve inventory even if `EXTENSION_NAMES` is empty, then run `/update1cbase all` followed by `/updatedbcfg all` (or the per-target sequence below). Confirmed no extensions means main only; a stored single-extension default cannot narrow `all`.
 
-**Load scope is owned by `/update1cbase → Select load scope`.** For partial / Git deployment, follow that command's complete load → checks → apply sequence, including file-list validation and baseline handling, then continue here at Step 4. Do not execute the full-load examples below as well. A failed load or apply blocks UI tests. A requested return export follows `/loadfrom1cbase` after apply with the same target and scope guards (`content/rules/getconfigfiles.md → Configuration file synchronization contract`).
+**Load is owned by `/update1cbase`; database apply is owned by `/updatedbcfg`.** This orchestrator is an explicit request to deploy, so it runs both in order: load → checks → apply → UI tests. For partial / Git deployment, follow `/update1cbase → Select load scope` for the load (including file-list validation and baseline handling), then `/updatedbcfg` for apply, then continue here at Step 4. A failed load or apply blocks UI tests. Never treat a finished `/update1cbase` alone as a completed deploy. A requested return export follows `/loadfrom1cbase` after apply with the same target and scope guards (`content/rules/getconfigfiles.md → Configuration file synchronization contract`).
 
 ## Step 0. Check `.dev.env` parameters
 
@@ -24,93 +24,30 @@ When substituting `.dev.env` values into the templates below, resolve `{INFOBASE
 
 Before running, inherit `/update1cbase`'s source-identity, completeness and selection preflight for every chosen target. A `Configuration.xml` somewhere under `EXPORT_PATH` alone is insufficient, and a partial dump cannot feed a full deployment.
 
-**EDT gate:** when `.dev.env` `USE_EDT=true`, the same source-format check as `/update1cbase` applies — Steps 2–3 load a Designer XML dump, not an EDT `src/**/*.mdo` tree, and only one deployment owner (this command **or** EDT's `update_database`) may act on the infobase in a run. Canon — `content/rules/edt-workflow.md`.
+**EDT gate:** when `.dev.env` `USE_EDT=true`, the same source-format check as `/update1cbase` applies — the load uses a Designer XML dump, not an EDT `src/**/*.mdo` tree, and only one deployment owner (this command **or** EDT's `update_database`) may act on the infobase in a run. Canon — `content/rules/edt-workflow.md`.
 
-This command uses forced session termination while applying the DB configuration. The target must be an explicitly identified dev/test infobase: `.dev.env` `INFOBASE_ROLE=dev|test` identifies it, `prod` refuses the deploy steps (canon `content/rules/dev-standards-env.md → INFOBASE_ROLE`). If the role is empty and the current context does not establish it, stop before Step 3 and ask the user to confirm the target; never infer that an arbitrary `.dev.env` points to a test base.
+This command uses forced session termination while applying the DB configuration (`/updatedbcfg`). The target must be an explicitly identified dev/test infobase: `.dev.env` `INFOBASE_ROLE=dev|test` identifies it, `prod` refuses the deploy steps (canon `content/rules/dev-standards-env.md → INFOBASE_ROLE`). If the role is empty and the current context does not establish it, stop before `/updatedbcfg` and ask the user to confirm the target; never infer that an arbitrary `.dev.env` points to a test base.
 
 ## Step 1. Choose tool: `ibcmd` or Designer
 
 1. Check whether the utility exists: `Test-Path '{PLATFORM_PATH}\bin\ibcmd.exe'`.
 2. Check whether `IBCMD_CONFIG` is filled in `.dev.env`.
-3. If **both conditions are true**, use **Steps 2a and 3a (`ibcmd`)**.
-4. Otherwise use **Steps 2b and 3b (Designer)**.
+3. If **both conditions are true**, prefer `ibcmd` for both stages (as in `/update1cbase` / `/updatedbcfg`).
+4. Otherwise use Designer for both stages.
 
 `ibcmd infobase config` does not apply to 1C cluster infobases; for server cluster infobases always use Designer.
 
-## Step 2a. Load configuration through `ibcmd` (preferred)
+## Step 2. Load configuration (`/update1cbase`)
 
-```powershell
-& '{PLATFORM_PATH}\bin\ibcmd.exe' infobase config import `
-    --config='{IBCMD_CONFIG}' `
-    --user='{IB_USER}' `
-    --password='{IB_PASSWORD}' `
-    --extension={EXTENSION_NAME} `
-    '{EXPORT_PATH}' *>&1 | Tee-Object -FilePath '{LOG_PATH}'
-```
+Run the `/update1cbase` procedure (`content/commands/update1cbase.md`) for the selected scope — single source of truth for load command lines, tool selection, extension checks after load, and the **Load retry loop**. Do **not** apply the database configuration here.
 
-Remove empty optional keys (`--user`, `--password`, `--extension`). On errors, show the relevant log fragment and **do not run** Step 3a.
+On load/check failure, show the relevant log fragment and **do not run** Step 3 or UI tests.
 
-## Step 3a. Update DB structure through `ibcmd`
+## Step 3. Update DB structure (`/updatedbcfg`)
 
-```powershell
-& '{PLATFORM_PATH}\bin\ibcmd.exe' infobase config apply `
-    --config='{IBCMD_CONFIG}' `
-    --user='{IB_USER}' `
-    --password='{IB_PASSWORD}' `
-    --force `
-    --dynamic=auto `
-    --session-terminate=force `
-    --extension={EXTENSION_NAME} *>&1 | Tee-Object -FilePath '{LOG_PATH}'
-```
+Run the `/updatedbcfg` procedure (`content/commands/updatedbcfg.md`) for the same target(s) — single source of truth for `/UpdateDBCfg` / `config apply`, applicability checks before apply, production overrides, and the **Apply retry loop**.
 
-`--session-terminate=force` forcibly terminates active sessions. It is allowed only after the dev/test confirmation above. On production, replace it with `--session-terminate=prompt` (or remove the key; default is `auto`) and agree on an update window with the user.
-
-Read `{LOG_PATH}`. On errors, show the relevant log fragment and **do not run** UI tests. Continue to **Step 4**.
-
-## Step 2b. Load configuration through Designer (fallback)
-
-```powershell
-& '{PLATFORM_PATH}\bin\1cv8.exe' DESIGNER `
-    {INFOBASE_FLAG} '{INFOBASE_PATH}' `
-    /N '{IB_USER}' `
-    /P '{IB_PASSWORD}' `
-    /DisableStartupMessages `
-    /LoadConfigFromFiles '{EXPORT_PATH}' `
-    -updateConfigDumpInfo `
-    -Extension {EXTENSION_NAME} `
-    /Out '{LOG_PATH}' `
-    /DumpResult '{RESULT_PATH}'
-```
-
-Remove empty optional keys (`/N`, `/P`, `-Extension`).
-
-Read the verdict from all three signals (`{RESULT_PATH}` = `0`, exit code, `{LOG_PATH}` containing `Конфигурация успешно загружена` / `Configuration successfully loaded`). Wait 5-10 seconds.
-
-## Step 3b. Update DB structure through Designer
-
-```powershell
-& '{PLATFORM_PATH}\bin\1cv8.exe' DESIGNER `
-    {INFOBASE_FLAG} '{INFOBASE_PATH}' `
-    /N '{IB_USER}' `
-    /P '{IB_PASSWORD}' `
-    /DisableStartupMessages `
-    /UpdateDBCfg -Dynamic+ -SessionTerminate force `
-    -Extension {EXTENSION_NAME} `
-    /Out '{LOG_PATH}' `
-    /DumpResult '{RESULT_PATH}'
-```
-
-`-SessionTerminate force` forcibly terminates active sessions. It is allowed only after the dev/test confirmation above. On production, remove this key and agree on an update window with the user.
-
-Read the verdict from all three signals (`{RESULT_PATH}`, exit code, `{LOG_PATH}`). On errors, show the relevant log fragment and **do not run** UI tests.
-
-## Step 3c. Applicability check — mandatory when an extension is deployed
-
-Whenever this run loads an extension (`EXTENSION_NAME` filled, or a full-snapshot pass over `EXTENSION_NAMES`), run `/update1cbase → Step 2c` (`content/commands/update1cbase.md` — the `/CheckModules` → `/CheckCanApplyConfigurationExtensions` ladder with the three-signal verdict) **between the load (Step 2) and the DB update (Step 3)**, in the `ibcmd` path as well. Stop at the first failure and do not run Step 3. For the main configuration alone the ladder is optional — run `/CheckConfig` when the change is large (whole-snapshot deploy, release build) or when the Gate 1–3 MCP validators were not exposed in this session.
-
-## Failure handling for Steps 2–3 — retry loop
-
-Apply the **Update retry loop** from `/update1cbase` (`content/commands/update1cbase.md → Update retry loop`) verbatim: read `{LOG_PATH}` after every attempt (diagnostics in the log override exit code 0 — classify the platform's success phrases first, `content/rules/designer-batch-checks.md → The success-phrase trap`); on failure terminate the hung / failed Configurator by its own PID only (never blanket-kill `1cv8` processes); fix the logged cause before any retry (re-running unchanged is forbidden); after a failed load restart from Step 2; at most 3 full attempts, then stop and report. UI tests (Step 4) run only after a clean pass.
+On apply failure, show the relevant log fragment and **do not run** UI tests. UI tests (Step 4) run only after a clean apply.
 
 ## Step 4. UI tests
 
@@ -125,7 +62,7 @@ Pick the route by `ui-testing-tools.md → Route order`: QA MCP (Step 4a) when i
 
 ### Step 4a. QA MCP in the thin client (main route)
 
-Load `content/skills/1c-qa-testing/SKILL.md` and `content/rules/qa-testclient.md`. The DB update of Step 3 ended the infobase sessions, so a test client started before it is stale: check `qa-testclient.ps1 status`, close a client you started with `stop`, and start a fresh one for `INFOBASE_PATH` with the window from `MCP_QA_CLIENT_VISIBLE`. Then `qa_start`, run the scenarios by the skill's observe → act → assert loop with a journal, confirm data effects through `1c-data-mcp` where the form does not show them, and stop the client you started. A step QA MCP cannot cover falls back to the web client for that step only.
+Load `content/skills/1c-qa-testing/SKILL.md` and `content/rules/qa-testclient.md`. The DB update of `/updatedbcfg` (Step 3) ended the infobase sessions, so a test client started before it is stale: check `qa-testclient.ps1 status`, close a client you started with `stop`, and start a fresh one for `INFOBASE_PATH` with the window from `MCP_QA_CLIENT_VISIBLE`. Then `qa_start`, run the scenarios by the skill's observe → act → assert loop with a journal, confirm data effects through `1c-data-mcp` where the form does not show them, and stop the client you started. A step QA MCP cannot cover falls back to the web client for that step only.
 
 ### Step 4b. Browser-tool preflight (web route, before any navigation)
 

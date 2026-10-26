@@ -23,7 +23,7 @@ Load the minimum rule set triage selects — docs-fix nothing beyond the always-
 Draw the boundary; do not suppress the initiative.
 
 - **Proceed without asking** on safe, local, reversible work: MCP reads and searches, project-file edits, validators, `1c-metadata-manage` tools, OpenSpec artefacts, memory notes.
-- **Ask first** for anything that changes state outside your own edits or is hard to reverse: infobase mutations (`/update1cbase`, `/loadfrom1cbase`, `/UpdateDBCfg`, publication), deletions, `git push` / history rewrite, anything reaching an external system, any material scope expansion. A destructive-action confirmation is a one-line question; `CONFUSION` is for genuine forks.
+- **Ask first** for anything that changes state outside your own edits or is hard to reverse: infobase mutations (`/update1cbase`, `/updatedbcfg`, `/loadfrom1cbase`, `/UpdateDBCfg`, publication), deletions, `git push` / history rewrite, anything reaching an external system, any material scope expansion. A destructive-action confirmation is a one-line question; `CONFUSION` is for genuine forks.
 - Never use a destructive shortcut past an obstacle — no bypassed checks, no discarding files you did not create, no rewriting a failing validation away.
 
 ## 4. Intent-level briefs, not micro-steps

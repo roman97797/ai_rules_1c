@@ -33,16 +33,16 @@ When no baseline is resolved — skip this step and state in the report that onl
 
 Report in one line which git state is being deployed (`git rev-parse --short HEAD` + whether the working tree is dirty — deploying uncommitted changes is normal in development, but it must be visible in the report).
 
-Then run the `/update1cbase` procedure (`content/commands/update1cbase.md` — single source of truth for the load / UpdateDBCfg command lines, tool selection, and the **Update retry loop**):
+Then run, in order:
 
-- in **full-snapshot mode** (`/update1cbase all`), using the resolved inventory: main configuration from `{EXPORT_PATH}`, then each selected extension in list order from its verified source root;
-- when that inventory confirms no extensions — an explicit main pass with no extension option, regardless of the stored `EXTENSION_NAME`. Unresolved inventory is resolved before Step 1; do not substitute a single-extension restore.
+1. `/update1cbase all` (`content/commands/update1cbase.md` — load and checks only; **Load retry loop**), using the resolved inventory: main configuration from `{EXPORT_PATH}`, then each selected extension in list order from its verified source root; when that inventory confirms no extensions — an explicit main pass with no extension option, regardless of the stored `EXTENSION_NAME`. Unresolved inventory is resolved before Step 1; do not substitute a single-extension restore.
+2. `/updatedbcfg all` (`content/commands/updatedbcfg.md` — `/UpdateDBCfg` / apply; **Apply retry loop**) for the same inventory.
 
-The retry loop (log-first, PID-scoped Configurator termination, fix-before-retry, 3 attempts) applies as written there. A `.dt` loaded in Step 1 already has its DB configuration in sync — the load in this step still runs, because the point of the command is to bring the base to the **git** state, which may be newer than the snapshot.
+This orchestrator owns apply: both stages are required. A `.dt` loaded in Step 1 already has its DB configuration in sync — the load and apply in this step still run, because the point of the command is to bring the base to the **git** state, which may be newer than the snapshot.
 
 ## Step 3. Smoke check
 
-Mandatory: the three-signal verdict of the `/update1cbase` procedure for the last launch of every pass — `{RESULT_PATH}` = `0`, exit code `0`, and a log whose success phrases are classified before error stems (`content/rules/designer-batch-checks.md → The verdict is three signals`); a bare "contains `Ошибка`" test is not a verdict.
+Mandatory: the three-signal verdict of the last launch of every load and apply pass (`/update1cbase` and `/updatedbcfg`) — `{RESULT_PATH}` = `0`, exit code `0`, and a log whose success phrases are classified before error stems (`content/rules/designer-batch-checks.md → The verdict is three signals`); a bare "contains `Ошибка`" test is not a verdict.
 
 Optional, only when already available in the session: one read-only `vcexecutecode` ping via `1c-data-mcp` to confirm the base opens and executes code (same read-only discipline as `verification-gates.md → Gate 3a`). Web-client login checks are UI testing — they run only per the `UI_TESTING` gate (`dev-standards-env.md`), never automatically here.
 

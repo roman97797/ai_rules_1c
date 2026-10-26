@@ -51,4 +51,4 @@ On a dump error, follow that command's result-check step — show the log fragme
 
 ## Step 5. Final report
 
-Report: the scenario used (A/B), the infobase (created or existing), the snapshot layout (`{EXPORT_PATH}`, `{EXTENSIONS_PATH}\<Name>` per extension), which `.dev.env` keys were written, the commit created. Suggest the next steps: `/update1cbase all` / `/deploy-and-test` for the develop-deploy cycle, `/restore-testbase` for rebuilding the test base from the snapshot.
+Report: the scenario used (A/B), the infobase (created or existing), the snapshot layout (`{EXPORT_PATH}`, `{EXTENSIONS_PATH}\<Name>` per extension), which `.dev.env` keys were written, the commit created. Suggest the next steps: `/update1cbase all` (load) and `/updatedbcfg` when DB apply is needed, or `/deploy-and-test` for the develop-deploy cycle, `/restore-testbase` for rebuilding the test base from the snapshot.

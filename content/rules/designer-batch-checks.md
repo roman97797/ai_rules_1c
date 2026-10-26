@@ -10,7 +10,7 @@ The gates of `verification-gates.md` (1–3) are **static**: they read source. T
 
 Two situations make it mandatory:
 
-1. **Before applying an extension** to an infobase (`/deploy-and-test`, `/update1cbase`, `/restore-testbase`, `/build-release`). An `&Вместо` / `&ИзменениеИКонтроль` interceptor that names a method the vendor has renamed is invisible to `syntaxcheck`, `verify_xml` and `cfe-validate` alike — all three see well-formed source. `/CheckCanApplyConfigurationExtensions` is the only thing that catches it before the base breaks.
+1. **Before applying an extension** to an infobase (`/updatedbcfg`, `/deploy-and-test`, `/restore-testbase`, `/build-release`). An `&Вместо` / `&ИзменениеИКонтроль` interceptor that names a method the vendor has renamed is invisible to `syntaxcheck`, `verify_xml` and `cfe-validate` alike — all three see well-formed source. `/CheckCanApplyConfigurationExtensions` is the only thing that catches it before the base breaks. `/update1cbase` may run ladder steps 1–2 after a load; it does not run step 4.
 2. **When the Gate 1–3 validators are not exposed** in the session. Use the platform fallback when a matching dev/test configuration can be established through an authorized workflow. A configured infobase alone is insufficient: checks against an older loaded version do not validate local edits (`verification-gates.md → Graceful degradation for Gates 1–3 — when a validator is not exposed`).
 
 Parameters and the ask-policy are canon in `dev-standards-env.md`; the placeholders below (`{PLATFORM_PATH}`, `{INFOBASE_FLAG}`, `{INFOBASE_PATH}`, `{IB_USER}`, `{IB_PASSWORD}`, `{EXTENSION_NAME}`, `{LOG_PATH}`) resolve exactly as in `/update1cbase`.
@@ -70,7 +70,7 @@ $p = Start-Process -FilePath '{PLATFORM_PATH}\bin\1cv8.exe' -ArgumentList $desig
 if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force }   # PID-scoped only
 ```
 
-Drop empty optional keys (`/N`, `/P`). `/DisableStartupDialogs` belongs next to `/DisableStartupMessages` — without it a modal dialog can hang the run until the timeout. Kill **only the PID this run started**; never blanket-kill `1cv8` (canon — `content/commands/update1cbase.md → Update retry loop`, step 2).
+Drop empty optional keys (`/N`, `/P`). `/DisableStartupDialogs` belongs next to `/DisableStartupMessages` — without it a modal dialog can hang the run until the timeout. Kill **only the PID this run started**; never blanket-kill `1cv8` (canon — `content/commands/update1cbase.md → Load retry loop` / `content/commands/updatedbcfg.md → Apply retry loop`, step 2).
 
 ## Bind the check to the current artifact
 
@@ -107,10 +107,10 @@ Notes on the switches:
 - `/CheckModules` **requires at least one mode key** — it does nothing without one. Documented keys: `-ThinClient`, `-WebClient`, `-Server`, `-ExternalConnection`, `-ThickClientOrdinaryApplication`. Pick the ones the configuration actually runs in; the three in the table are the usual managed-application set.
 - `-ExtendedModulesCheck` (checks method / property access "through the dot") is documented for `/CheckConfig`. Current 8.3 platforms also accept it on `/CheckModules` — try it there, and drop it if the log reports an unknown key rather than assuming the check ran.
 - `/CheckConfig` accepts many more mode keys (`-WebClient`, `-MobileClient`, `-ThickClient*`, `-DistributiveModules`, `-UnreferenceProcedures`, `-EmptyHandlers`, …). Add the ones matching the project's run modes; the row above is the baseline, not the maximum.
-- Step 4 uses **`-Dynamic-`** deliberately: a dynamic update leaves running sessions on the old configuration, so "it applied" tells you nothing about whether it applies cleanly. This is the *verification* form. The deployment commands (`/deploy-and-test`, `/update1cbase`) use `-Dynamic+ -SessionTerminate force` against a confirmed dev/test base for speed — a different intent, and both are correct in their place.
-- Steps 1–3 are read-only. Step 4 mutates the infobase and is subject to the same dev/test confirmation as every deployment command.
+- Step 4 uses **`-Dynamic-`** deliberately: a dynamic update leaves running sessions on the old configuration, so "it applied" tells you nothing about whether it applies cleanly. This is the *verification* form. `/updatedbcfg` and the orchestrators that call it (`/deploy-and-test`, `/restore-testbase`, `/build-release`) use `-Dynamic+ -SessionTerminate force` against a confirmed dev/test base for speed — a different intent, and both are correct in their place. `/update1cbase` does not run step 4.
+- Steps 1–3 are read-only. Step 4 mutates the infobase and runs only from `/updatedbcfg` (or an orchestrator that owns apply), after the same dev/test confirmation as that command.
 
-**Budget.** One run per check per artifact state. A failing check is fixed at the source and re-run once against the changed state — re-running an unchanged artifact is forbidden, same as for the MCP validators (`mcp-policy.md → C.1`).
+**Budget.** One run per check per artifact state. A failing check is fixed at the source and re-run once against the changed state — re-running an unchanged artifact is forbidden, same as for the MCP validators (`AGENTS.md → MCP Tool Calling → C.1`).
 
 ## Extension apply and rollback
 

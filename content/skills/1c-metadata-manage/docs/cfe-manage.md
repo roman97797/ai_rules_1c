@@ -246,7 +246,7 @@ Read the verdict from three signals (process exit code, `/DumpResult`, `/Out` di
 
 For a `&ИзменениеИКонтроль`-heavy extension, `-Check` (section 4) and the applicability check answer related questions from opposite ends: drift detection names the *method* whose original moved, the platform names the *error*. Run `-Check` first — it is cheaper and its output is more actionable.
 
-Record the exact checked combination and evidence in the existing extension README or delivery description (`content/rules/extension-workspace.md → Checked compatibility`). Source/drift validation is not evidence of an applied or tested infobase. Reuse the authorized `/update1cbase` load → checks → apply sequence and any executed scenarios; record missing checks without widening the workflow.
+Record the exact checked combination and evidence in the existing extension README or delivery description (`content/rules/extension-workspace.md → Checked compatibility`). Source/drift validation is not evidence of an applied or tested infobase. Reuse the authorized `/update1cbase` load → checks sequence and, when apply was explicitly requested, `/updatedbcfg`; record missing checks without widening the workflow.
 
 ### Backup and rollback before replacing an existing extension
 

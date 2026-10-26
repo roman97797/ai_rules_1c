@@ -51,13 +51,13 @@ Both these parameters and the practices they govern — adding a project prefix 
 
 ### Infobase / deployment parameters
 
-Used by `/loadfrom1cbase`, `/update1cbase`, `/getconfigfiles`, `/deploy-and-test`, the full-cycle commands (`/initproject`, `/restore-testbase`, `/test-fix-loop`, `/build-release`) and the `1c-tester` subagent. **Not consulted at all for pure code, review, analysis, or documentation tasks** — pure code work proceeds even when this entire block is empty.
+Used by `/loadfrom1cbase`, `/update1cbase`, `/updatedbcfg`, `/getconfigfiles`, `/deploy-and-test`, the full-cycle commands (`/initproject`, `/restore-testbase`, `/test-fix-loop`, `/build-release`) and the `1c-tester` subagent. **Not consulted at all for pure code, review, analysis, or documentation tasks** — pure code work proceeds even when this entire block is empty.
 
 | Parameter | Effect | Class | Behavior when empty |
 |---|---|---|---|
 | `{PLATFORM_PATH}` | 1C platform install dir (must contain `bin\1cv8.exe`); used as the executable for all Designer-mode commands | Highly desirable for any IB-bound command | Ask when an IB-bound command is scheduled; the command cannot run without it |
 | `{INFOBASE_KIND}` | `file` → `/F`, `server` → `/S` flag for Designer | Defaulted | Defaults to `file` (per `.dev.env.example`) |
-| `{INFOBASE_PATH}` | Path to file infobase or connection string of server infobase | **Highly desirable** for configuration load / dump operations | Ask only when `/loadfrom1cbase`, `/update1cbase`, `/getconfigfiles`, `/deploy-and-test` is invoked; otherwise stay silent |
+| `{INFOBASE_PATH}` | Path to file infobase or connection string of server infobase | **Highly desirable** for configuration load / dump operations | Ask only when `/loadfrom1cbase`, `/update1cbase`, `/updatedbcfg`, `/getconfigfiles`, `/deploy-and-test` is invoked; otherwise stay silent |
 | `{INFOBASE_ROLE}` | Role of the project infobase: `dev` \| `test` \| `prod`. The role covers the base at `INFOBASE_PATH` and its web publication `INFOBASE_PUBLISH_URL`, which `1c-data-mcp` and UI tests use. It is the explicit answer every "identified dev/test infobase" gate asks for | Defaulted | Empty = role unknown: each dev/test gate asks the user once before its first mutating step, as it always has. **Never set, lower or clear it yourself**; see the note below |
 | `{IB_USER}` / `{IB_PASSWORD}` | Optional credentials (`/N`, `/P`); empty values omit the flags | Defaulted | Empty = no credentials, the `/N` / `/P` (or `--user` / `--password`) flags are omitted. **Never ask up front.** Re-ask only if the command itself fails with an authentication error from the platform. An empty password is a fully valid configuration for dev / test infobases. |
 | `{EXTENSION_NAME}` | Default/primary extension for a single-target operation; the resolved pass supplies `-Extension` | Defaulted | Empty = main configuration unless the task explicitly selects another target; never overwrite this setting just to switch a pass |
@@ -81,12 +81,12 @@ Used by `/loadfrom1cbase`, `/update1cbase`, `/getconfigfiles`, `/deploy-and-test
 
 #### `INFOBASE_ROLE` — what the agent may do to the project infobase
 
-The role is the project's statement about its infobase, not the agent's guess from a path, a name or a user list. Every command that says "the target must be an explicitly identified dev/test infobase" reads it first: `/update1cbase`, `/deploy-and-test`, `/restore-testbase`, `/initproject from-ib`, the Designer batch check ladder, Gates 3a and 6, and the live-IB write rules.
+The role is the project's statement about its infobase, not the agent's guess from a path, a name or a user list. Every command that says "the target must be an explicitly identified dev/test infobase" reads it first: `/update1cbase`, `/updatedbcfg`, `/deploy-and-test`, `/restore-testbase`, `/initproject from-ib`, the Designer batch check ladder, Gates 3a and 6, and the live-IB write rules.
 
 | Value | Meaning |
 |---|---|
 | `dev`, `test` | The base is identified as dev/test. The gates pass without the confirmation question, forced session termination included. |
-| `prod` | The agent does **not** change this base. Refused: configuration and extension loads, DB configuration apply (`/UpdateDBCfg`, extension apply), `.dt` restore, `/RollbackCfg`, repository `lock -Revised` / `update` / `commit` through it, and writes through `1c-data-mcp`. Allowed: read-only work — dumps (`/loadfrom1cbase`, `/getconfigfiles`), repository `status` / `history` / `diff`, and live-IB queries on the user's explicit request (Gate 3a does not run). A change that must reach this base is handed to the user as exact commands with the production overrides of `/update1cbase` and the `/build-release` Step 7 checklist. |
+| `prod` | The agent does **not** change this base. Refused: configuration and extension loads, DB configuration apply (`/UpdateDBCfg`, `/updatedbcfg`, extension apply), `.dt` restore, `/RollbackCfg`, repository `lock -Revised` / `update` / `commit` through it, and writes through `1c-data-mcp`. Allowed: read-only work — dumps (`/loadfrom1cbase`, `/getconfigfiles`), repository `status` / `history` / `diff`, and live-IB queries on the user's explicit request (Gate 3a does not run). A change that must reach this base is handed to the user as exact commands with the production overrides of `/updatedbcfg` and the `/build-release` Step 7 checklist. |
 | empty | Unknown. Each dev/test gate asks the user once before its first mutating step; the answer holds for the current task only. |
 
 - Only the user sets the value. Record `dev` / `test` / `prod` in `.dev.env` only when the user states the role explicitly. Never lower `prod`, never clear it, and never repoint `INFOBASE_PATH` / `INFOBASE_PUBLISH_URL` to get past a refusal. A refusal on `prod` is the correct outcome, not an obstacle.
@@ -139,7 +139,7 @@ Explicit editor: `/uitests essential|on|manual|off|status` (`content/commands/ui
 | `manual` | UI tests run **only on an explicit user request**; the pipeline and the verification phase never trigger them. `/deploy-and-test` Steps 1–3 still run; Step 4 is skipped unless requested. |
 | `off` | UI testing is disabled on every route. A run request alone does not enable it; point to `/uitests essential`, `/uitests on` or `/uitests manual`. An explicit enable-and-run instruction satisfies the switch without a second confirmation; execution gates still apply. |
 
-Resolve `off` first: it blocks UI regardless of routes and starts no setup questionnaire. Loading the change for a check follows `INFOBASE_ROLE` and `/update1cbase` / `/deploy-and-test`. The route supplies **where**: QA MCP — the test client of `INFOBASE_PATH`; web — `INFOBASE_PUBLISH_URL`. An automatic run with no available route is skipped and affected criteria stay unverified with that reason; for an explicitly requested run, ask for the missing prerequisite and continue independent work.
+Resolve `off` first: it blocks UI regardless of routes and starts no setup questionnaire. Loading the change for a check follows `INFOBASE_ROLE` and `/update1cbase` / `/updatedbcfg` / `/deploy-and-test`. The route supplies **where**: QA MCP — the test client of `INFOBASE_PATH`; web — `INFOBASE_PUBLISH_URL`. An automatic run with no available route is skipped and affected criteria stay unverified with that reason; for an explicitly requested run, ask for the missing prerequisite and continue independent work.
 
 **Route and tool** — `ui-testing-tools.md`: QA MCP → web client → `Windows-MCP` for windows outside the client. `MCP_QA_CLIENT_VISIBLE` (`/uitests visible|hidden`) sets the test-client window, never `UI_TESTING` — `qa-testclient.md → Visible or hidden window`.
 
@@ -176,7 +176,7 @@ Missing, empty or invalid values are `unknown`, not proof that EDT is absent. On
 | `TOOL_WINDOWS_MCP` | Windows-MCP desktop automation |
 | `TOOL_QA` | `1c-qa` (QA MCP): UI checks in the 1C thin client |
 | `TOOL_UI_TEST` | Optional `MCP_Test` / `1C Visual UI Test` |
-| `TOOL_CONVERSION` | `1c-kd20` (KD20): «Конвертация данных» 2.0 exchange rules and read-only EnterpriseData checks; installed separately |
+| `TOOL_CONVERSION` | Optional `MCP_ConversionData20` |
 
 Examples: `TOOL_COGNEE=off` excludes Cognee while other memory providers remain eligible; `TOOL_SYNTAX=required` blocks syntax verification when its tool is missing; `TOOL_AGENT_BROWSER=off` selects an eligible browser fallback without an installation question. No key switches off the shipped metadata/IB/repository procedures. `rtk` remains a user-global shell proxy managed by `/install-rtk`, not project tool routing.
 
@@ -277,7 +277,7 @@ Consumed by `/support`, `/supportstatus` and `/checkupdates` (contract — `supp
 |---|---|---|---|
 | `{SUPPORT_KEY}` | Shared support key, sent as the `X-Support-Key` header. Ships with the MCP distribution (`config.env`, section 6); a fresh one comes from the personal cabinet at https://vibecoding1c.ru/. **Secret**: never echoed into chat, logs, ticket text, or `context`. | Highly desirable for `/support` | `/support` and `/supportstatus` send nothing and report which of the two values is missing and where to get it. Never invent a key, never borrow one from another project. |
 | `{SUPPORT_EMAIL}` | Working e-mail of the ticket author. The operator answers to it; `/supportstatus` filters your tickets by it. | Highly desirable for `/support` | Same as above. The e-mail is the user's own — ask for it only when `/support` is actually being invoked. |
-| `{SUPPORT_API_URL}` | Endpoint of the support service. | Defaulted | Empty = `http://104.249.10.238:18082`. Fill in only for a dedicated instance. |
+| `{SUPPORT_API_URL}` | Endpoint of the support service. | Defaulted | Empty = `https://d5ds85pood7ob80g5fd9.nnekmrav.apigw.yandexcloud.net`. Fill in only for a dedicated instance. |
 
 A ticket is created with status `новый` and is moved to `закрыт` by the operator. The whole section is inert for development work: an empty support block blocks no code, review, or infobase task.
 

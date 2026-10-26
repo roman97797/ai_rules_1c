@@ -54,7 +54,7 @@ Latest-version report (`/ConfigurationRepositoryReport -NBegin -1`). The cheapes
 ... -Operation update -Objects "Справочник.Номенклатура" [-Version 135] [-Revised]
 ```
 
-`/ConfigurationRepositoryUpdateCfg -Objects …`. Omitted `-Version` = repository head. After an update that changed objects, the DB structure may need `/update1cbase` (see [repo-sdlc.md](repo-sdlc.md)).
+`/ConfigurationRepositoryUpdateCfg -Objects …`. Omitted `-Version` = repository head. After an update that changed objects, the database structure may need `/updatedbcfg` (see [repo-sdlc.md](repo-sdlc.md)).
 
 ### commit — put changes into the repository
 

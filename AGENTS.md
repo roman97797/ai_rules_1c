@@ -93,7 +93,7 @@ Before writing or reviewing BSL/metadata, load `content/rules/coding-standards.m
 ## Skills and Subagents
 
 - **Metadata mutations:** `content/skills/1c-metadata-manage/SKILL.md` or `1c-metadata-manager`; hand edits only within the skill's exceptions, context checked before, XML after.
-- **Infobase operations:** matching command procedure or `db-ops`/`web-ops`, never ad-hoc `1cv8.exe`/`ibcmd`; keep escaping, logs, sessions and retries (`content/commands/update1cbase.md`).
+- **Infobase operations:** matching command procedure or `db-ops`/`web-ops`, never ad-hoc `1cv8.exe`/`ibcmd`; keep escaping, logs, sessions and retries (`content/commands/update1cbase.md` for load, `content/commands/updatedbcfg.md` for database apply — apply is never implied by load).
 - **Configuration repository:** `REPOSITORY_PATH` set → `content/skills/1c-repository-manage/SKILL.md`: lock before edit, commit after verify; never unbind or clear the setting to bypass locks, even on request.
 - **Vendor support:** never bypass a locked-object refusal with XML edits; prefer an extension; `support-edit` only as a stated decision (`content/skills/1c-metadata-manage/docs/support-manage.md`).
 - **Delegation:** `content/rules/subagents.md` (+ `content/rules/subagent-pipeline.md` for delegated full-cycle, `content/rules/orchestrator-economy.md` when `ORCHESTRATION=economy`); subagents inherit these gates and `content/rules/subagent-core.md`. Exploration — project `1c-explorer` only, never a host's generic explorer.

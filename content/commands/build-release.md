@@ -26,7 +26,7 @@ Read `Version` from each selected target's `Configuration.xml`. For the optional
 
 Before materialization, follow `content/rules/extension-workspace.md → Preserve extension identity`: retain the known extension/object identifiers and borrowed links, and investigate unexpected identifier changes in the selected inputs.
 
-Run the `/update1cbase` procedure (single source of truth for command lines, tool selection, checks and the Update retry loop) for **exactly the selected targets**: full-snapshot mode only for the full snapshot, otherwise an explicitly resolved main or named-extension pass. For an extension-only build, establish the assembly base's expected main configuration and relevant dependencies before applicability checks; do not silently deploy other project targets. A failed load, validation or apply stops the build before dumping artifacts. This ties output to the materialized committed source state; do not certify unrelated extensions already in the assembly base as part of this build.
+Run `/update1cbase` then `/updatedbcfg` for **exactly the selected targets** (full-snapshot mode only for the full snapshot, otherwise an explicitly resolved main or named-extension pass). Load and apply are separate commands; this orchestrator owns both. For an extension-only build, establish the assembly base's expected main configuration and relevant dependencies before applicability checks; do not silently deploy other project targets. A failed load, validation or apply stops the build before dumping artifacts. This ties output to the materialized committed source state; do not certify unrelated extensions already in the assembly base as part of this build.
 
 ## Step 4. Dump the artifacts
 
@@ -51,7 +51,7 @@ This command does **not** apply anything to production. Print the checklist for 
 
 1. Backup of the production base (`.dt` via `db-dump-dt` for file bases / DBMS backup for server bases) taken and verified.
 2. Update window agreed with the users.
-3. Apply per the `/update1cbase` procedure with the **production overrides stated there**: no forced session termination (`-SessionTerminate` removed / `--session-terminate=prompt`), dynamic-update decision made consciously.
+3. Apply per the `/updatedbcfg` procedure with the **production overrides stated there**: no forced session termination (`-SessionTerminate` removed / `--session-terminate=prompt`), dynamic-update decision made consciously.
 4. Extensions applied in `EXTENSION_NAMES` order after the main configuration.
 5. Post-update verification: log check, key user scenario walked through.
 

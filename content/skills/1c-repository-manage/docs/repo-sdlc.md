@@ -18,11 +18,12 @@ status ─→ lock(-Revised) ─→ refresh sources ─→ [standard cycle: muta
 
 | Command / tool | In repository mode |
 |---|---|
-| `/update1cbase` (sources → IB, `/UpdateDBCfg`) | Loading changed objects into a repository-bound IB requires those objects **locked first**; otherwise the load fails or silently skips read-only objects. Lock before running; a "configuration is read-only / object locked" error in its log routes here, not to a retry loop. The load is preceded by the freshness check ([Source files follow the infobase](#source-files-follow-the-infobase)). |
+| `/update1cbase` (sources → IB configuration; load only) | Loading changed objects into a repository-bound IB requires those objects **locked first**; otherwise the load fails or silently skips read-only objects. Lock before running; a "configuration is read-only / object locked" error in its log routes here, not to a retry loop. The load is preceded by the freshness check ([Source files follow the infobase](#source-files-follow-the-infobase)). Database apply is a separate `/updatedbcfg`. |
+| `/updatedbcfg` (`/UpdateDBCfg`) | Applies an already-loaded configuration to the database structure. Explicit only; does not replace the load lock/freshness rules of `/update1cbase`. |
 | `/loadfrom1cbase`, `/getconfigfiles` (IB → sources) | Read-only with respect to the repository — no locks needed. They are also the refresh step after `lock -Revised` / `update`. |
 | `1c-metadata-manage` mutating tools | Same gate: the XML they edit corresponds to configuration objects that must be locked before the change lands in the IB. The mutation itself stays in that skill; this skill owns only the lock/commit envelope. Wrapper `-Preview` is not a repository step (`METADATA_PREVIEW`, default `auto`). |
 | `/build-release` | Prefer `dump -Version <N>` from the repository (fixed, team-visible version) over the local working copy when the release must match what the team committed. |
-| `/deploy-and-test` | Deploy steps inherit the `/update1cbase` rule above; test steps are unaffected. |
+| `/deploy-and-test` | Deploy steps inherit the `/update1cbase` lock/freshness rules above, then `/updatedbcfg` for apply; test steps are unaffected. |
 
 **The lock list comes from the plan, not from a preview.** Lock every object the plan names, including the owner object of a form, layout, rights or module being changed. A wrapper `-Preview` is not a repository step; never hold locks across a write-then-rollback pause (`content/skills/1c-metadata-manage/docs/edit-preview.md → When preview runs`).
 

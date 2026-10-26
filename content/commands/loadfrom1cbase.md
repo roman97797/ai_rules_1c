@@ -7,7 +7,7 @@ argumentHint: "[full|changes|partial|all]"
 
 Refresh configuration files from the infobase defined in `.dev.env`: full dump, incremental refresh or selected-object export. Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` before choosing the scope. With `all` (or an explicit "with extensions" request), dump the **full snapshot** — main configuration plus every extension from `EXTENSION_NAMES`; see "Full-snapshot mode" below.
 
-This is the directory-refresh stage of the workflow shared with `/update1cbase`. It does not load files into the infobase or apply the database configuration.
+This is the directory-refresh stage of the workflow shared with `/update1cbase` (load) and `/updatedbcfg` (apply). It does not load files into the infobase or apply the database configuration.
 
 **Target before mode:** follow `content/rules/extension-workspace.md`. Select the current project and main or one exact extension before choosing `full` / `changes` / `partial`; these modes do not select a target. Use that pass's source directory and extension option in every template below. Explicit task/file ownership overrides the single-target `EXTENSION_NAME` default without changing settings; `all` uses main plus `EXTENSION_NAMES`. Keep each target's baseline and lists separate.
 
@@ -92,7 +92,7 @@ The specified directory is the dump root; preserve the selected format's object 
 1. Read the complete log and process exit code; for Designer also require a fresh `{RESULT_PATH}` with `0`. Classify success phrases before error stems per `content/rules/designer-batch-checks.md`. Check the expected artifacts for the selected mode: source files for full / partial, a valid baseline for changes, or the report file for comparison (an empty report is valid).
 2. If errors exist, show the relevant log fragment to the user and stop.
 3. Briefly list which top-level object directories appeared or changed according to `git status`, without content diffs.
-4. Report the target, direction, scope, baseline and result. When called after `/update1cbase`, distinguish successful database apply from successful directory refresh; a failed export does not undo a completed apply.
+4. Report the target, direction, scope, baseline and result. When called after `/update1cbase` / `/updatedbcfg`, distinguish successful load, successful database apply and successful directory refresh; a failed export does not undo a completed apply.
 
 ## Full-snapshot mode (`/loadfrom1cbase all`) — optional
 

@@ -4,9 +4,9 @@ Comprehensive database management: registry (.v8-project.json) and platform oper
 
 ## Integration with configuration synchronization
 
-Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates full / Git load, checks and database apply. Its `partial` mode loads and checks, then stops without database apply. `/deploy-and-test` inherits the deployment sequence of the mode it runs.
+Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates load and checks only (never database apply); `/updatedbcfg` owns `/UpdateDBCfg` / `db-update` and runs only on explicit request or as a documented step of `/deploy-and-test`, `/restore-testbase`, `/build-release`.
 
-These scripts implement individual stages. When a database update is already requested, continue from a successful load through the required checks to `db-update`; do not stop to offer the already requested next stage. Keep load and apply separate (omit loader `-UpdateDB`) when the orchestrator must run extension applicability checks between them. Use one executor per stage and the same infobase, extension and source root throughout.
+These scripts implement individual stages. Keep load and apply separate (omit loader `-UpdateDB`). `/update1cbase` never continues into `db-update`. When an orchestrator that owns apply has already requested database update, continue from a successful load through the required checks to `/updatedbcfg` / `db-update`. Use one executor per stage and the same infobase, extension and source root throughout.
 
 ---
 
@@ -25,7 +25,7 @@ Manages the `.v8-project.json` file — the project's infobase registry. Stores 
 >
 > Resolution order per value: explicit command-line parameter → `.dev.env` → `.v8-project.json` → built-in default (auto-detect for the platform, `deny` for the guard). An empty key in `.dev.env` counts as "not set" and falls through.
 >
-> Connection parameters (`INFOBASE_PATH`, `INFOBASE_KIND`, `IB_USER`, `IB_PASSWORD`, `EXPORT_PATH`, `EXTENSION_NAME`) are passed to the scripts as flags by the calling slash command (`/loadfrom1cbase`, `/update1cbase`, `/getconfigfiles`, `/deploy-and-test`) from the same `.dev.env`. **`.v8-project.json` is not required and not created by the installer** — describe it only if you deliberately want the upstream multi-base registry below (several infobases bound to Git branches / aliases). If you do create one, remember `.dev.env` still wins for the four values in the table.
+> Connection parameters (`INFOBASE_PATH`, `INFOBASE_KIND`, `IB_USER`, `IB_PASSWORD`, `EXPORT_PATH`, `EXTENSION_NAME`) are passed to the scripts as flags by the calling slash command (`/loadfrom1cbase`, `/update1cbase`, `/updatedbcfg`, `/getconfigfiles`, `/deploy-and-test`) from the same `.dev.env`. **`.v8-project.json` is not required and not created by the installer** — describe it only if you deliberately want the upstream multi-base registry below (several infobases bound to Git branches / aliases). If you do create one, remember `.dev.env` still wins for the four values in the table.
 
 ### Usage
 
@@ -232,7 +232,7 @@ Launches 1C in background — control returns immediately.
 powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/scripts/db-update.ps1 -InfoBasePath "C:\Bases\MyDB" -UserName "Admin"
 ```
 
-Applies main configuration changes to the database configuration (`/UpdateDBCfg`). Required step after `db-load-cf`, `db-load-xml` and `db-load-git` when the caller is `/update1cbase` in `full`, `git` or `all`, or another procedure that asked for the database update. `/update1cbase partial` does not call this step.
+Applies main configuration changes to the database configuration (`/UpdateDBCfg`). Owned by `/updatedbcfg` (`content/commands/updatedbcfg.md`). `/update1cbase` never calls this step. Run it only when the user explicitly asked for database apply, or when an orchestrator that owns apply (`/deploy-and-test`, `/restore-testbase`, `/build-release`) invokes `/updatedbcfg`.
 
 | Extra Parameter | Description |
 |-----------------|-------------|
@@ -273,9 +273,9 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 | `-InputFile <path>` | Input CF file (required) |
 | `-Extension <name>` | Load as extension |
 
-After loading: offer to run `db-update` to apply changes to the database.
+After a standalone load: do **not** offer or run `db-update` / `/updatedbcfg` unless the user explicitly asked for database apply.
 
-Within `/update1cbase` or `/deploy-and-test`, the apply stage is already part of the request: run the required checks, then continue to it.
+Within `/deploy-and-test`, `/restore-testbase` or `/build-release`, the apply stage is already part of the request: after a successful load, continue to `/updatedbcfg`.
 
 ---
 
@@ -329,7 +329,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-db-ops/script
 
 Partial mode accepts **file paths** through exactly one of `-Files` / `-ListFile`; validate scope, existence and dependencies first. A raw platform list is UTF-8 with no blank lines. The Designer branch writes its own list, adds `-partial -updateConfigDumpInfo`, and uses `-Format`; confirm the platform supports the intended flags. It excludes service files (`ConfigDumpInfo.xml`, `ParentConfigurations.bin`) from partial loading. If those exclusions omit part of the requested change, resolve the scope instead of reporting a complete deployment. Do not combine partial mode with `-AllExtensions`. When the list includes `Configuration.xml` (for example after a new object is borrowed into an extension), Designer reads every object file in the directory, not only the listed ones (reported on 8.3.27 extension loads): an unlisted file that does not load, such as a borrowed form referring to an unborrowed `CommonPicture` or `StyleItem`, fails the whole load. Run `cfe-validate` on the extension directory before such a load.
 
-Standalone load-only requests finish after loading. In `/update1cbase` / `/deploy-and-test`, continue with checks and `db-update`; a successful import or updated baseline is not a completed database update.
+`/update1cbase` and other standalone load-only requests finish after loading and checks. A successful import or updated baseline is not a completed database update. Continue to `/updatedbcfg` / `db-update` only when apply was explicitly requested (user or orchestrator that owns apply).
 
 ---
 
@@ -358,7 +358,7 @@ Determines changed configuration files from Git data and performs partial load i
 | `Unstaged` | Modified but not indexed + untracked |
 | `Commit` | Files from commit range (requires `-CommitRange`) |
 
-Run `-DryRun` first to inspect the exact scope. Resolve deletions, renames, missing dependencies and excluded files before loading; files absent from the working tree are not automatically a successful metadata deletion. A no-change plan is a no-op. After a successful load, follow the same checks → `db-update` sequence when database update was requested.
+Run `-DryRun` first to inspect the exact scope. Resolve deletions, renames, missing dependencies and excluded files before loading; files absent from the working tree are not automatically a successful metadata deletion. A no-change plan is a no-op. After a successful load, continue to `/updatedbcfg` / `db-update` only when database apply was explicitly requested.
 
 ---
 
@@ -420,15 +420,14 @@ If the base is busy (active sessions), the load fails: for a server base pass `-
 ... db-load-xml ... -Mode Partial -Files "CommonModules/MyModule/Ext/Module.bsl"
 ```
 
-Within a database update, continue with the applicable checks and `db-update`. If a source-directory refresh is also requested, use `/loadfrom1cbase` after successful apply, preserving local changes and the same extension scope.
+Load finishes here unless `/updatedbcfg` / `db-update` was explicitly requested. If a source-directory refresh is also requested after a successful apply, use `/loadfrom1cbase`, preserving local changes and the same extension scope.
 
 #### Load Git Changes into Database
 
 ```powershell
-# All uncommitted changes
+# All uncommitted changes — load only
 ... db-load-git ... -Source All
-# Then apply
-... db-update ...
+# db-update / /updatedbcfg — only when explicitly requested
 ```
 
 ### Return Codes
@@ -440,7 +439,7 @@ Within a database update, continue with the applicable checks and `db-update`. I
 
 ### Update retry discipline — mandatory for load / update operations
 
-`db-load-cf` / `db-load-xml` / `db-load-git` / `db-update` failures are handled **iteratively**, mirroring `content/commands/update1cbase.md → Update retry loop`:
+`db-load-cf` / `db-load-xml` / `db-load-git` / `db-update` failures are handled **iteratively**, mirroring `content/commands/update1cbase.md → Load retry loop` for loads and `content/commands/updatedbcfg.md → Apply retry loop` for apply:
 
 1. **Log after every attempt, success or not.** Exit code 0 does not prove success — the platform writes errors like `Неверное свойство объекта метаданных`, `Неизвестное имя типа`, `Ошибка при обновлении конфигурации базы данных` to the log while formally exiting clean. The scripts already close part of that gap: every Designer launch passes `/DumpResult` and turns a non-zero (or missing) batch result into a non-zero script exit, and `db-load-xml` / `db-update` also scan the log for known failure lines. Still read the log output the script shows. A diagnostic line = failed attempt — but classify the platform's **success phrases first** (`Ошибок не обнаружено`, `Предупреждений: 0` contain the same word stems), otherwise a clean run reads as a failure. Order and pattern list — `content/rules/designer-batch-checks.md → The success-phrase trap`.
 2. **Terminate a hung / failed Configurator before retrying.** A dead-but-alive Designer process holds the configuration lock, and every next attempt fails with `База данных заблокирована`. Kill only the process this run started (by PID with a timeout); never blanket-kill all `1cv8` processes — the user's own Designer / client sessions may be among them. A lock that survives your process's death is foreign — report it, do not kill further.
@@ -451,7 +450,7 @@ Within a database update, continue with the applicable checks and `db-update`. I
 
 - **DO NOT READ the scripts — just RUN them**
 - Before an irreversible operation (`db-load-dt`, a CF load over an existing base, a risky `db-update`, a platform upgrade) — offer `db-dump-dt` as the rollback point
-- After any load operation, suggest running `db-update` (exception: `db-load-dt` — the snapshot is already in sync)
+- After a load operation, do **not** run or suggest `db-update` / `/updatedbcfg` unless the user (or an orchestrator that owns apply) explicitly requested database apply
 - Check logs after execution and show results to user — following the retry discipline above on any failure
 
 ---

@@ -31,7 +31,7 @@ Tools — routing and parameters: `content/skills/mcp-1c-tools/SKILL.md`; entry 
 
 ## Deployment Process
 
-All deployment goes through the slash command `/deploy-and-test` (`content/commands/deploy-and-test.md`) — the single source of truth, including the `ibcmd`-vs-Designer choice; do not duplicate its PowerShell here. After deployment read the log at `{LOG_PATH}` (or `$env:TEMP/1cv8.log` when the placeholder was empty) and confirm no errors before UI testing. A failed deployment follows `content/commands/update1cbase.md → Update retry loop` (at most 3 attempts, cause fixed before each retry).
+All deployment goes through the slash command `/deploy-and-test` (`content/commands/deploy-and-test.md`) — the single source of truth, including the `ibcmd`-vs-Designer choice; do not duplicate its PowerShell here. After deployment read the log at `{LOG_PATH}` (or `$env:TEMP/1cv8.log` when the placeholder was empty) and confirm no errors before UI testing. A failed deployment follows `/update1cbase → Load retry loop` and `/updatedbcfg → Apply retry loop` (at most 3 attempts each, cause fixed before each retry).
 
 ## QA MCP Testing (main route)
 

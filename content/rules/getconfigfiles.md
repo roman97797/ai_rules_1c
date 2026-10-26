@@ -8,7 +8,7 @@ category: workflow
 
 ## Configuration file synchronization contract
 
-`/loadfrom1cbase` owns **infobase → source directory**; `/getconfigfiles` is its selected-object export procedure. `/update1cbase` owns **source directory → configuration**, and for `full`, `git` and `all` also **→ database configuration**. Its `partial` mode does not update the database. `/deploy-and-test` inherits the sequence of the mode it runs. These are stages of one workflow, with the same infobase, main configuration or named extension, source directory and format throughout a pass.
+`/loadfrom1cbase` owns **infobase → source directory**; `/getconfigfiles` is its selected-object export procedure. `/update1cbase` owns **source directory → configuration** (load and checks only — never database apply). `/updatedbcfg` owns **→ database configuration** and runs only on explicit request (or as a documented step of `/deploy-and-test`, `/restore-testbase`, `/build-release`). `/deploy-and-test` sequences load then apply then UI checks. These are stages of one workflow, with the same infobase, main configuration or named extension, source directory and format throughout a pass.
 
 Resolve the current project and exact target through `content/rules/extension-workspace.md` before transfer. In the templates below, `EXPORT_PATH` and `EXTENSION_NAME` are the resolved source-root/extension values for that pass, not an instruction to rewrite settings. Metadata discovery for the selection uses that same project's verified MCP scope and extension layer (`content/rules/multi-contour-search.md`); identical object names in another project or the base do not establish the extension's export list.
 
@@ -31,7 +31,7 @@ For a partial load, use **one** selector: `-files "<file1>,<file2>"` or `-listFi
 
 The separate `-partial` flag limits restoration of an object's description to the supplied pieces (including a form module alone); it is not a replacement for a file selector. The bundled `db-load-xml -Mode Partial` and `db-load-git` add it. Verify support in the target platform version before use. Keep integrity checks enabled.
 
-Add required parent descriptors / registrations for new objects and dependencies from evidence. A deleted or renamed path cannot simply be omitted from a Git-derived list and reported as deployed: resolve the required removal / parent change, or explicitly choose a full load from a complete snapshot. Do not load `ConfigDumpInfo.xml` itself as a metadata object. If the resulting selection is empty, stop before loading and updating the database.
+Add required parent descriptors / registrations for new objects and dependencies from evidence. A deleted or renamed path cannot simply be omitted from a Git-derived list and reported as deployed: resolve the required removal / parent change, or explicitly choose a full load from a complete snapshot. Do not load `ConfigDumpInfo.xml` itself as a metadata object. If the resulting selection is empty, stop before loading.
 
 `-AllExtensions` is incompatible with import `-files` / `-listFile`. Process partial extension changes one named extension per pass. Command-level `all` means main configuration **and** the configured extensions; platform `-AllExtensions` covers extensions only.
 
@@ -39,9 +39,10 @@ Add required parent descriptors / registrations for new objects and dependencies
 
 1. Refresh source from the infobase only when that direction is required: full, changes or selected objects. Check the export result before editing.
 2. Edit and validate the intended XML / BSL. Build the import list from actual changed files and the required dependencies, not from `repoobjects.txt` or an unexamined change report.
-3. Follow `/update1cbase`: load the selected files or full snapshot, inspect the result, and run the applicable checks (extension applicability before apply). Modes `full`, `git` and `all` then update the database configuration. Mode `partial` stops after the load and those checks; do not run the database update. A successful partial load is not a database update. For the modes that do apply, a successful load alone is not a successful database update either.
-4. After successful apply, a requested directory refresh uses `/loadfrom1cbase` with the same target and an appropriate scope. Protect local edits even during this return pass. If no refresh is needed, retain the load's updated version file; do not run `UpdateInfo` to hide a failed load / apply or claim that unrelated files are synchronized.
-5. Report load, checks, database update and any export separately. On failure stop the dependent stages; retain logs and the last trustworthy baseline. A version file alone does not prove that database apply succeeded.
+3. Follow `/update1cbase`: load the selected files or full snapshot, inspect the result, and run the applicable checks. **Do not** run `/updatedbcfg` from this step. A successful load is not a database update.
+4. Run `/updatedbcfg` only when the user (or an orchestrator that owns apply) explicitly requested database apply. Extension applicability checks belonging to apply live in that command.
+5. After successful apply, a requested directory refresh uses `/loadfrom1cbase` with the same target and an appropriate scope. Protect local edits even during this return pass. If no refresh is needed, retain the load's updated version file; do not run `UpdateInfo` to hide a failed load / apply or claim that unrelated files are synchronized.
+6. Report load, checks, database update and any export separately. On failure stop the dependent stages; retain logs and the last trustworthy baseline. A version file alone does not prove that database apply succeeded.
 
 Reference: 1C:Enterprise 8.3.27 Administrator Guide, [batch configuration commands](https://kb.1ci.com/1C_Enterprise_Platform/Guides/Administrator_Guides/1C_Enterprise_8.3.27_Administrator_Guide/Appendix_7._Startup_command-line_options_of_1C_Enterprise/7.4._Running_Designer_in_batch_mode/7.4.4._Configurations_and_extensions/?language=tr). Check version-dependent options against the target platform's installed help if the online guide is unavailable.
 
