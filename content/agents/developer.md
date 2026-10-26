@@ -36,7 +36,7 @@ Handoff in / out — `content/rules/subagent-core.md → Handoff in / out (imple
 2. Before writing code — `templatesearch` (query rules and template reuse: `content/skills/mcp-1c-tools/docs/1c-templates-mcp.md`).
 3. Existing patterns — `search_code` / `codesearch`; the exact routine — `search_function`; layout of the module you are about to edit — `get_module_structure` (skip files inventoried in the Handoff).
 4. Metadata facts and attribute types — `get_object_dossier` / `get_metadata_details`; available members of a context — `bsl_scope_members`.
-5. Before designing a specialized capability (crypto, СЛАУ, data analysis, bus, bots, …) — `content/skills/mcp-1c-tools/docs/1C-docs-mcp.md → "Platform capability discovery"`; БСП reuse — `ssl_search`.
+5. Before designing a specialized capability (crypto, СЛАУ, data analysis, bus, bots, …) — `content/skills/mcp-1c-tools/docs/1C-docs-mcp.md → "Platform capability discovery"`; БСП reuse — `ssl_search`. Before a new helper that does not encode customer-specific business rules, follow `sdd-integrations.md → Check reuse before a new helper`: a short search for a public platform, БСП or project analogue, with `Typical reuse:` evidence; unavailable MCP is reported honestly and does not block implementation by itself.
 6. Still unclear — ask (inherited `CONFUSION`); otherwise design with DRY and the project rules, then write the code.
 7. Validate every touched module with the gates selected by `content/rules/verification-policy.md`, in `syntaxcheck` → `check_1c_code` → `review_1c_code` order; use that policy's depth, promotion floor and retry budget.
 8. When callers, metadata or forms are affected — `trace_call_chain` for routine callers, `trace_impact` / `graph_dependencies` for object dependencies.
