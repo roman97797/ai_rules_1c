@@ -1,4 +1,4 @@
-﻿# db-load-xml v1.19 — Load 1C configuration from XML files
+﻿# db-load-xml v1.20 — Load 1C configuration from XML files
 # Source: https://github.com/Nikolay-Shirokov/cc-1c-skills
 # NB: *nix-раскладку платформы (/opt/1cv8/<ver>/1cv8, без .exe) знает только .py-порт — PS на *nix не исполняется.
 <#
@@ -539,6 +539,8 @@ try {
     }
 
     # --- 1cv8 branch ---
+    $formLoadRoots = @()
+    $skipPartialPass = $false
     # --- Build arguments ---
     $arguments = @("DESIGNER")
 
@@ -583,15 +585,32 @@ try {
             Write-Host "Error: после исключения служебных файлов поддержки загружать нечего. Для смены поддержки используйте -Mode Full." -ForegroundColor Red
             exit 1
         }
-        $generatedListFile = Join-Path $tempDir "load_list.txt"
-        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
-        [System.IO.File]::WriteAllLines($generatedListFile, $fileList, $utf8Bom)
-        Write-Host "Files to load: $($fileList.Count)"
-        foreach ($f in $fileList) { Write-Host "  $f" }
+        . (Join-Path $PSScriptRoot 'partial-form-load.ps1')
+        $formSplit = Split-PartialFormFiles -RelativePaths $fileList -ConfigDir $ConfigDir
+        if ($formSplit.MissingFormRoots.Count -gt 0) {
+            Write-Host "Error: не найден корневой XML формы:" -ForegroundColor Red
+            foreach ($missingForm in $formSplit.MissingFormRoots) { Write-Host "  $missingForm" -ForegroundColor Red }
+            exit 1
+        }
+        $formLoadRoots = @($formSplit.FormRoots)
+        $fileList = @($formSplit.PartialFiles)
+        if ($formLoadRoots.Count -gt 0) {
+            Write-Host "Формы грузятся целиком, без -partial (иначе платформа отклоняет каталог Ext):"
+            foreach ($formRoot in $formLoadRoots) { Write-Host "  $formRoot" }
+        }
+        if ($fileList.Count -eq 0) {
+            $skipPartialPass = $true
+        } else {
+            $generatedListFile = Join-Path $tempDir "load_list.txt"
+            $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+            [System.IO.File]::WriteAllLines($generatedListFile, $fileList, $utf8Bom)
+            Write-Host "Files to load: $($fileList.Count)"
+            foreach ($f in $fileList) { Write-Host "  $f" }
 
-        $arguments += "-listFile", "`"$generatedListFile`""
-        $arguments += "-partial"
-        $arguments += "-updateConfigDumpInfo"
+            $arguments += "-listFile", "`"$generatedListFile`""
+            $arguments += "-partial"
+            $arguments += "-updateConfigDumpInfo"
+        }
     }
 
     $arguments += "-Format", $Format
@@ -604,19 +623,29 @@ try {
     }
 
     # --- UpdateDB ---
-    if ($UpdateDB) {
+    # When forms follow in a second pass, apply the database only after that pass.
+    if ($UpdateDB -and $formLoadRoots.Count -eq 0) {
         $arguments += "/UpdateDBCfg"
     }
 
     # --- Output ---
     $outFile = Join-Path $tempDir "load_log.txt"
-    $arguments += "/Out", "`"$outFile`""
     $resultFile = Join-Path $tempDir "batch_result.txt"
-    $arguments += "/DumpResult", "`"$resultFile`""
-    $arguments += "/DisableStartupDialogs"
-    $arguments += $extraArgs
+    if (-not $skipPartialPass) {
+        $arguments += "/Out", "`"$outFile`""
+        $arguments += "/DumpResult", "`"$resultFile`""
+        $arguments += "/DisableStartupDialogs"
+        $arguments += $extraArgs
+    }
 
     # --- Execute ---
+    if ($skipPartialPass) {
+        Write-Host "No files for -partial."
+        $exitCode = 0
+        $__v8 = [pscustomobject]@{ Output = $null; ExitCode = 0 }
+        $logContent = $null
+        $silentFailures = @()
+    } else {
     Write-Host "Running: 1cv8.exe $(Protect-Secrets ((Format-ArgsForDisplay $arguments $engine) -join ' ') @($Password, $UserName))"
     $__v8 = Invoke-PlatformProcess $V8Path $arguments -PreQuoted
     $exitCode = $__v8.ExitCode
@@ -675,7 +704,11 @@ try {
     # rejection warnings) is always printed to stdout for visibility. With -StrictLog,
     # elevate exit code to 1 when rejection patterns are found even if platform said 0.
     if ($exitCode -eq 0) {
-        Write-Host "Load completed successfully" -ForegroundColor Green
+        if ($formLoadRoots.Count -gt 0) {
+            Write-Host "Partial files loaded" -ForegroundColor Green
+        } else {
+            Write-Host "Load completed successfully" -ForegroundColor Green
+        }
     } else {
         Write-Host "Error loading configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
     }
@@ -693,6 +726,71 @@ try {
         Write-Host $msg -ForegroundColor Yellow
         foreach ($f in $silentFailures) { Write-Host "  $f" -ForegroundColor Yellow }
         if ($StrictLog -and $exitCode -eq 0) { $exitCode = 1 }
+    }
+    }
+
+    if ($exitCode -ne 0) {
+        if ($formLoadRoots.Count -gt 0) {
+            Write-Host "Формы не загружены: предыдущий проход завершился с ошибкой." -ForegroundColor Red
+        }
+        exit $exitCode
+    }
+
+    if ($formLoadRoots.Count -gt 0) {
+        Write-Host "Executing form load..."
+        $formList = Join-Path $tempDir "form_list.txt"
+        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+        [System.IO.File]::WriteAllLines($formList, $formLoadRoots, $utf8Bom)
+        $formArgs = @("DESIGNER")
+        if ($InfoBaseServer -and $InfoBaseRef) {
+            $formArgs += "/S", "`"$InfoBaseServer/$InfoBaseRef`""
+        } else {
+            $formArgs += "/F", "`"$InfoBasePath`""
+        }
+        if ($UserName) { $formArgs += "/N`"$UserName`"" }
+        if ($Password) { $formArgs += "/P`"$Password`"" }
+        $formArgs += "/LoadConfigFromFiles", "`"$ConfigDir`""
+        $formArgs += "-listFile", "`"$formList`""
+        $formArgs += "-Format", $Format
+        $formArgs += "-updateConfigDumpInfo"
+        if ($Extension) {
+            $formArgs += "-Extension", "`"$Extension`""
+        } elseif ($AllExtensions) {
+            $formArgs += "-AllExtensions"
+        }
+        if ($UpdateDB) { $formArgs += "/UpdateDBCfg" }
+        $formOut = Join-Path $tempDir "form_log.txt"
+        $formResult = Join-Path $tempDir "form_result.txt"
+        $formArgs += "/Out", "`"$formOut`""
+        $formArgs += "/DumpResult", "`"$formResult`""
+        $formArgs += "/DisableStartupDialogs"
+        $formArgs += $extraArgs
+        Write-Host "Running: 1cv8.exe $(Protect-Secrets ((Format-ArgsForDisplay $formArgs $engine) -join ' ') @($Password, $UserName))"
+        $__form = Invoke-PlatformProcess $V8Path $formArgs -PreQuoted
+        $exitCode = Resolve-DesignerBatchExitCode -ProcessExitCode $__form.ExitCode -ResultFile $formResult
+        $formLog = $null
+        if (Test-Path $formOut) {
+            $formLog = Get-Content $formOut -Raw -ErrorAction SilentlyContinue
+        }
+        $formRejections = @(Get-LoadLogRejections -LogContent $formLog)
+        if ($exitCode -eq 0) {
+            Write-Host "Load completed successfully" -ForegroundColor Green
+        } else {
+            Write-Host "Error loading configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
+        }
+        if ($formLog) {
+            Write-Host "--- Log ---"
+            Write-Host $formLog
+            Write-Host "--- End ---"
+        }
+        Write-PlatformOutput $__form.Output
+        if ($formRejections.Count -gt 0) {
+            $msg = "[warning] log contains $($formRejections.Count) rejection(s) — platform loaded config but dropped properties/refs"
+            if (-not $StrictLog) { $msg += " (pass -StrictLog to treat as error)" }
+            Write-Host $msg -ForegroundColor Yellow
+            foreach ($rejection in $formRejections) { Write-Host "  $rejection" -ForegroundColor Yellow }
+            if ($StrictLog -and $exitCode -eq 0) { $exitCode = 1 }
+        }
     }
 
     exit $exitCode

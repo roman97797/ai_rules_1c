@@ -121,6 +121,10 @@ An extension is the **default answer** when a typical object on vendor support n
 
 ## db-manage.md
 
+### Local fix `2026-10-27` — forms are not loaded with `-partial`
+
+`db-load-xml` v1.19 → **v1.20**, `db-load-git` v1.18 → **v1.19**. On 8.3.13 `/LoadConfigFromFiles -partial` rejects `Forms/<Имя>/Ext` (`Неизвестный объект метаданных …Form.<Имя>.Ext`). Both Designer loaders now collapse form files to the form root XML and load that form in a second pass without `-partial`. Object `Ext` (modules) stays on the `-partial` pass. `-UpdateDB` runs only on the last pass.
+
 ### Local fix `2026-10-20` — `-Dynamic` takes `auto` / `disable`
 
 `db-update` v1.13 → **v1.14** (support ticket 7557c7cf): through `powershell.exe -File` a lone `-Dynamic "-"` never reaches the script — Windows PowerShell 5.1 exits with a non-zero code and no output, so the agent saw a silent failure instead of `/UpdateDBCfg -Dynamic-`. `-Dynamic` now also accepts `auto` and `disable` (the ibcmd spellings), mapped to `+` / `-`; `+` / `-` keep working in-process, and `-Dynamic:-` works through `-File` as well. Checked on a throwaway 8.3.27.2130 file base: `-File … -Dynamic disable` → `-Dynamic-`, `auto` → `-Dynamic+`, both exit 0.

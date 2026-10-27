@@ -103,7 +103,7 @@ For **partial** mode, insert one of the following selector fragments after `/Loa
 -files "CommonModules/РаботаСДанными/Ext/Module.bsl" -Format Hierarchical
 ```
 
-Use only one fragment, resolve its real paths and use `Plain` for a flat dump. For loading only supplied pieces of an object's description, add `-partial` only after confirming support in the target platform help (the bundled partial-load tools already add it). Keep `-updateConfigDumpInfo` in full and partial Designer loads. It updates the version baseline, not the database configuration.
+Use only one fragment, resolve its real paths and use `Plain` for a flat dump. For loading only supplied pieces of an object's description, add `-partial` only after confirming support in the target platform help (the bundled partial-load tools already add it). Do not put `Forms/<Форма>/Ext/...` into a `-partial` list on 8.3.13: the platform reports `…Form.<Форма>.Ext` as an unknown metadata object. `db-load-xml` and `db-load-git` load those forms by the form root XML without `-partial`. Keep `-updateConfigDumpInfo` in full and partial Designer loads. It updates the version baseline, not the database configuration.
 
 Read the verdict (`{RESULT_PATH}`, exit code, `{LOG_PATH}` — see the retry loop below). On errors, show the relevant log fragment to the user and stop. On success, run **Step 2c** when an extension was loaded, then continue to **Step 3**.
 
