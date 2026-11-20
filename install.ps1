@@ -128,6 +128,11 @@ $script:LlmRulesFileName = 'LLM-RULES.md'
 $script:DevEnvFileName = '.dev.env'
 $script:DevEnvExampleName = '.dev.env.example'
 $script:UseEdtKey = 'USE_EDT'
+# CODE_OWNER: who owns the project code (user | agent). Asked at most once per
+# run - see Resolve-CodeOwnerAnswer.
+$script:CodeOwnerKey = 'CODE_OWNER'
+$script:CodeOwnerAnswer = $null
+$script:CodeOwnerAsked = $false
 $script:SupportKeys = @('SUPPORT_KEY', 'SUPPORT_EMAIL', 'SUPPORT_API_URL')
 $script:SupportedTools = @('cursor', 'claude-code', 'codex', 'opencode', 'kilocode', 'kimi', 'qwen', 'command-code', 'cline', 'zcode', 'mimocode', 'pi', 'other')
 # OpenCode configs belong to the user, including files tracked by older
@@ -1560,21 +1565,16 @@ function Invoke-OpenSpecScaffold {
 # Code with two project folders (`.kilo` + `.kilocode`). Remap the Kilo Code
 # artefacts onto the same `.kilo/` root — commands into `.kilo/commands/`
 # (Kilo's current location for what upstream calls "workflows") and skills into
-# `.kilo/skills/`. Since OpenSpec 1.13 two more tools diverge from their
-# adapter: Codex skills come as the vendor-neutral `.agents/skills/` (the Codex
-# adapter installs skills into `.codex/skills/`), and OpenCode commands come as
-# `.opencode/commands/` (the OpenCode adapter uses `.opencode/command/`). Both
-# are remapped so every tool keeps a single skills / commands folder and the
-# install destinations of earlier bundles stay unchanged. All other paths pass
-# through unchanged.
+# `.kilo/skills/`. Since OpenSpec 1.13 OpenCode commands come as
+# `.opencode/commands/` (the OpenCode adapter uses `.opencode/command/`) and
+# are remapped the same way, so the tool keeps a single commands folder. Codex
+# skills come as `.agents/skills/`, which is the Codex adapter's own skills
+# folder, and pass through like all other paths.
 function Get-OpenSpecBundleDestRel {
     param(
         [string]$Tool,
         [string]$Rel
     )
-    if ($Tool -eq 'codex' -and $Rel -like '.agents/skills/*') {
-        return '.codex/skills/' + $Rel.Substring('.agents/skills/'.Length)
-    }
     if ($Tool -eq 'opencode' -and $Rel -like '.opencode/commands/*') {
         return '.opencode/command/' + $Rel.Substring('.opencode/commands/'.Length)
     }
@@ -1590,6 +1590,98 @@ function Get-OpenSpecBundleDestRel {
         }
     }
     return $Rel
+}
+
+# Kimi Code, Pi and Command Code also read `.agents/skills/`, the one project
+# skills folder Codex scans (moonshotai.github.io/kimi-code/en/customization/
+# skills, earendil-works/pi packages/coding-agent/docs/skills.md,
+# commandcode.ai/docs/skills; checked 2026-11-20). Installed beside Codex, their
+# own skills folder would show every skill twice, and Codex's command skills
+# would repeat their commands. So the rule above holds here too — every tool
+# keeps a single skills / commands folder: with Codex active these tools take
+# Codex's `skills` and `commands` sections, each file is placed once in
+# `.agents/skills/` and owned by every tool that reads it.
+$script:AgentsSkillsReaders = @('kimi', 'pi', 'command-code')
+
+function Get-SharedSkillsAdapters {
+    param(
+        [string[]]$Tools,
+        [hashtable]$Adapters
+    )
+    $result = @{}
+    foreach ($key in $Adapters.Keys) { $result[$key] = $Adapters[$key] }
+    $codex = $Adapters['codex']
+    if ($Tools -notcontains 'codex' -or -not $codex) { return $result }
+    foreach ($tool in $script:AgentsSkillsReaders) {
+        if ($Tools -notcontains $tool -or -not $Adapters[$tool]) { continue }
+        $copy = [ordered]@{}
+        foreach ($k in $Adapters[$tool].Keys) { $copy[$k] = $Adapters[$tool][$k] }
+        $copy['skills'] = $codex['skills']
+        $copy['commands'] = $codex['commands']
+        $result[$tool] = $copy
+    }
+    return $result
+}
+
+# Our copies a change of that layout leaves behind: in a reader's own skills
+# and commands folders once it shares `.agents/skills/`, or in `.agents/skills/`
+# once Codex is gone. Unchanged copies are deleted; an edited one stays on disk,
+# untracked, with a warning. Nothing untracked is touched.
+function Remove-UnsharedSkillCopies {
+    param(
+        [string]$Root,
+        [System.Collections.IDictionary]$Manifest,
+        [string[]]$Tools,
+        [hashtable]$NativeAdapters
+    )
+    $prefixes = @()
+    if ($Tools -contains 'codex') {
+        foreach ($tool in $script:AgentsSkillsReaders) {
+            $adapter = $NativeAdapters[$tool]
+            if ($Tools -notcontains $tool -or -not $adapter) { continue }
+            $own = [ordered]@{}
+            foreach ($section in @('skills', 'commands')) { if ($adapter.Contains($section)) { $own[$section] = $adapter[$section] } }
+            $prefixes += @(Get-AdapterTargetDirs $own)
+        }
+    }
+    else { $prefixes = @('.agents/skills') }
+    if ($prefixes.Count -eq 0) { return }
+    $removed = 0
+    $kept = @()
+    foreach ($k in @(@($Manifest.files.Keys) + @($script:PreviousFiles.Keys) | Select-Object -Unique)) {
+        $rel = ([string]$k).Replace('\', '/')
+        if (@($prefixes | Where-Object { $rel.StartsWith($_ + '/') }).Count -eq 0) { continue }
+        $abs = Join-Path $Root $rel
+        $exists = Test-Path -LiteralPath $abs
+        if ($Manifest.files.Contains($k)) {
+            $entry = $Manifest.files[$k]
+            $clean = -not $entry.userModified -and $exists -and ((Get-FileSha256 $abs) -eq $entry.installedHash)
+            if ($exists -and -not $clean) { $kept += $rel }
+            [void]$Manifest.files.Remove($k)
+        }
+        else { $clean = $exists }  # update dropped it as unchanged and nothing placed it again
+        if ($clean) {
+            Remove-Item -LiteralPath $abs -Force -ErrorAction SilentlyContinue
+            $removed++
+        }
+    }
+    foreach ($p in $prefixes) {
+        $dir = Join-Path $Root $p
+        if ($removed -eq 0 -or -not (Test-Path -LiteralPath $dir)) { continue }
+        foreach ($d in @(Get-ChildItem -LiteralPath $dir -Recurse -Directory -ErrorAction SilentlyContinue |
+                Sort-Object { $_.FullName.Length } -Descending) + @(Get-Item -LiteralPath $dir)) {
+            if (-not (Get-ChildItem -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($removed -gt 0) {
+        Write-Info "  skills folder layout changed: removed $removed copy(ies) from $($prefixes -join ', ')"
+    }
+    if ($kept.Count -gt 0) {
+        Write-Warn "  Kept $($kept.Count) edited copy(ies) the shared skills folder replaces; they are no longer tracked:"
+        $kept | ForEach-Object { Write-Warn "    $_" }
+    }
 }
 
 # Remove OpenSpec artefacts left in the legacy `.kilocode/` tree by an earlier
@@ -1636,6 +1728,58 @@ function Remove-LegacyKilocodeOpenSpec {
         }
     }
     return $removed
+}
+
+# Earlier Codex installs wrote commands as custom prompts into the user-level
+# `~/.codex/prompts/` and skills into a project `.codex/skills/`. Codex
+# deprecated custom prompts and never scanned a project `.codex/skills/`; both
+# now live in `.agents/skills/`. Our copies are deleted and untracked; a copy
+# the user edited is untracked and kept on disk, with a warning, so the edit is
+# not lost. The user's prompts directory itself is never removed.
+function Remove-LegacyCodexArtifacts {
+    param(
+        [string]$Root,
+        [System.Collections.IDictionary]$Manifest
+    )
+    if (-not $Manifest -or -not $Manifest.files) { return }
+    $legacy = @($Manifest.files.Keys | Where-Object {
+        $k = [string]$_
+        $k -like '.codex/skills/*' -or (
+            [System.IO.Path]::IsPathRooted($k) -and
+            $k.Replace('\', '/') -match '/\.codex/prompts/[^/]+\.md$' -and
+            ([string]$Manifest.files[$k].source) -like 'content/commands/*')
+    })
+    if ($legacy.Count -eq 0) { return }
+    $removed = 0
+    $kept = @()
+    foreach ($k in $legacy) {
+        $entry = $Manifest.files[$k]
+        $abs = Resolve-ManifestPath -Root $Root -Rel $k
+        if (Test-Path -LiteralPath $abs) {
+            $clean = $entry -and -not $entry.userModified -and $entry.installedHash -and
+                ((Get-FileSha256 $abs) -eq $entry.installedHash)
+            if ($clean) {
+                Remove-Item -LiteralPath $abs -Force -ErrorAction SilentlyContinue
+                $removed++
+            }
+            else { $kept += $k }
+        }
+        [void]$Manifest.files.Remove($k)
+    }
+    $skillsDir = Join-Path $Root '.codex/skills'
+    if (Test-Path -LiteralPath $skillsDir) {
+        foreach ($d in @(Get-ChildItem -LiteralPath $skillsDir -Recurse -Directory -ErrorAction SilentlyContinue |
+                Sort-Object { $_.FullName.Length } -Descending) + @(Get-Item -LiteralPath $skillsDir)) {
+            if (-not (Get-ChildItem -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    Write-Info "Migrated: removed $removed Codex prompt / .codex/skills file(s) of an earlier install (commands and skills now live in .agents/skills/)"
+    if ($kept.Count -gt 0) {
+        Write-Warn "  Kept $($kept.Count) of them because they were edited; Codex no longer reads them, and they are no longer tracked:"
+        $kept | ForEach-Object { Write-Warn "    $_" }
+    }
 }
 
 # Place OpenSpec artefacts (slash commands / workflows + SKILLs) bundled under
@@ -2126,9 +2270,73 @@ function Resolve-CopyToPath {
     return $p
 }
 
+# The skill name a command gets under `commands.mode: skill` (Codex). A command
+# named like a source skill (`caveman`) cannot share that skill's directory,
+# so it is installed as `<name>-command`; every other command keeps its name.
+function Get-CommandSkillName {
+    param(
+        [string]$SourceRoot,
+        [string]$Name
+    )
+    if ($SourceRoot -and (Test-Path -LiteralPath (Join-Path $SourceRoot "content/skills/$Name/SKILL.md"))) {
+        return "$Name-command"
+    }
+    return $Name
+}
+
+# `SKILL.md` text for a command placed as an agent skill. A skill carries only
+# `name` and `description`; the argument hint and the explicit-only marker of
+# a `userOnly` command go into the text, so a host without `agents/openai.yaml`
+# still sees them, and `$ARGUMENTS` is explained instead of expanded.
+function Format-CommandSkill {
+    param(
+        [string]$Name,
+        [string]$CommandName,
+        [System.Collections.IDictionary]$SourceFm,
+        [string]$Body
+    )
+    $fm = [ordered]@{ name = $Name }
+    if ($SourceFm -and $SourceFm.Contains('description')) { $fm['description'] = [string]$SourceFm['description'] }
+    $notes = @("The ``/$CommandName`` command as the skill ``$Name`` (in Codex: ``$" + $Name + "``). Another ``/<command>`` named below is the skill of that name.")
+    $hint = if ($SourceFm -and $SourceFm.Contains('argumentHint')) { [string]$SourceFm['argumentHint'] } else { '' }
+    if ($hint) { $notes += "Arguments: ``$hint`` — the text the user writes after invoking this skill." }
+    if ($Body -match '\$ARGUMENTS') { $notes += '`$ARGUMENTS` below means those arguments (empty when none were given).' }
+    if ($SourceFm -and $SourceFm.Contains('userOnly') -and [string]$SourceFm['userOnly'] -eq 'True') {
+        $notes += 'Run only when the user invokes this skill explicitly; never start it on your own.'
+    }
+    $text = (Format-Frontmatter $fm) + "`n`n" + (($notes | ForEach-Object { "> $_" }) -join "`n>`n") + "`n"
+    return $text + $Body
+}
+
+# A skill directory under a shared, cross-tool root (`.agents/skills/`) that
+# holds files none of which this installer placed belongs to the user or to
+# another tool: it is kept, not overwritten (AGENT-INSTALL.md → Confirm before
+# destructive actions). -Force / -ForcePaths on the directory takes it over.
+function Test-ForeignSkillDir {
+    param(
+        [string]$Root,
+        [string]$TargetDir,
+        [System.Collections.IDictionary]$Manifest
+    )
+    $rel = ($TargetDir -replace '[\\/]+$', '').Replace('\', '/')
+    if (-not $rel.StartsWith('.agents/skills/')) { return $false }
+    $abs = Join-Path $Root $rel
+    if (-not (Test-Path -LiteralPath $abs)) { return $false }
+    if (Test-ForcePath "$rel/SKILL.md") { return $false }
+    $files = @(Get-ChildItem -LiteralPath $abs -Recurse -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) { return $false }
+    foreach ($f in $files) {
+        $key = "$rel/" + (Get-InstallerRelativePath -BasePath (Resolve-InstallerExistingPath $abs) -ChildPath $f.FullName)
+        if ($Manifest.files.Contains($key) -or $script:PreviousFiles.Contains($key)) { return $false }
+    }
+    Write-Warn "  $rel exists and was not installed by 1c-rules — kept as is (-ForcePaths '$rel/*' replaces it)"
+    return $true
+}
+
 # Resolve a manifest key (relative or already-absolute) to an absolute filesystem
-# path. Manifest keys for adapters whose `copyTo` starts with `~/` (currently
-# codex `commands`) are stored as absolute paths by `Invoke-PlaceArtifactFile`;
+# path. Manifest keys for adapters whose `copyTo` starts with `~/` (no current
+# adapter; Codex `commands` before they became skills, see
+# Remove-LegacyCodexArtifacts) are stored as absolute paths by `Invoke-PlaceArtifactFile`;
 # every other key is project-relative. Iteration over `$manifest.files.Keys`
 # must go through this helper instead of `Join-Path $Root $rel`, otherwise
 # absolute keys turn into garbage like `C:\Project\C:\Users\...` and Test-Path
@@ -2229,6 +2437,18 @@ function Invoke-PlaceArtifactFile {
         }
         else { Copy-Item -LiteralPath $SourcePath -Destination $absTarget -Force }
     }
+    elseif ($Mode -eq 'skill') {
+        # A command placed as an agent skill: `<skills>/<skill>/SKILL.md`, the
+        # skill named after its directory.
+        $skillName = Split-Path -Leaf (Split-Path -Parent $absTarget)
+        $full = Format-CommandSkill -Name $skillName -CommandName ([IO.Path]::GetFileNameWithoutExtension($SourcePath)) `
+            -SourceFm $SourceFm -Body $SourceBody
+        Write-TextFile -Path $absTarget -Content (Convert-AgentsMdPaths -Text $full -Layouts $Layouts)
+    }
+    elseif ($Mode -eq 'generated') {
+        # Text the installer composed itself (a skill's `agents/openai.yaml`).
+        Write-TextFile -Path $absTarget -Content $SourceBody
+    }
     else {
         $newFm = Invoke-FrontmatterOps -Source $SourceFm -Ops $FrontmatterOps
         $fmText = Format-Frontmatter $newFm
@@ -2273,6 +2493,7 @@ function Invoke-PlaceSkill {
     $absTarget = Join-Path $Root $TargetDir
     $srcFull = Resolve-InstallerExistingPath $SourceDir
     $targetRelBase = ($TargetDir -replace '[\\/]+$', '').Replace('\', '/')
+    if (Test-ForeignSkillDir -Root $Root -TargetDir $TargetDir -Manifest $Manifest) { return }
     if (-not (Test-Path $absTarget)) {
         New-Item -ItemType Directory -Force -Path $absTarget | Out-Null
     }
@@ -2508,7 +2729,7 @@ function Read-AgentModelChoice {
     Write-Info '    [3] Claude Fable 5 / Mythos 5   (fable5)'
     Write-Info '    [4] GPT-5.6                     (gpt56)'
     Write-Info '    [5] GPT-6 Astra                 (gpt6)'
-    Write-Info '    [6] другая модель / не задавать (базовый свод правил, профиль не применяется)'
+    Write-Info '    [6] другая модель / не задавать (агент сам применит профиль своей модели, если он есть)'
     Write-Info '    [7] ввести название модели самому (в любом написании)'
     $choice = Read-Required '  Выбор модели головного агента' '6'
     switch ($choice) {
@@ -2518,10 +2739,10 @@ function Read-AgentModelChoice {
         '4' { return 'gpt56' }
         '5' { return 'gpt6' }
         '7' {
-            $raw = Read-Required '  Название модели (Enter — без профиля)' ''
+            $raw = Read-Required '  Название модели (Enter — не задавать)' ''
             $slug = Resolve-AgentModelSlug -Raw $raw
             if (-not $slug -and $raw) {
-                Write-Warn "  модель '$raw' не распознана — профиль не применяется, действует базовый свод правил (сменить позже: /rulesmodel)"
+                Write-Warn "  модель '$raw' не распознана — значение не записано, агент сам применит профиль своей модели, если он есть (сменить позже: /rulesmodel)"
             }
             return $slug
         }
@@ -2594,13 +2815,23 @@ function Invoke-PlacePhase {
         $loadedAdapters = Load-Adapters -SourceRoot $SourceRoot -Tools $missingAdapters
         foreach ($key in $loadedAdapters.Keys) { $canonicalAdapters[$key] = $loadedAdapters[$key] }
     }
-    $layouts = Resolve-CanonicalArtifactLayouts -ActiveTools $canonicalTools -Adapters $canonicalAdapters
-    foreach ($tool in $ActiveTools) {
-        $adapter = $Adapters[$tool]
+    $nativeAdapters = $canonicalAdapters
+    $canonicalAdapters = Get-SharedSkillsAdapters -Tools $canonicalTools -Adapters $nativeAdapters
+    $layouts = Resolve-CanonicalArtifactLayouts -ActiveTools $canonicalTools -Adapters $canonicalAdapters -SourceRoot $SourceRoot
+    # `add -Tool codex` beside an installed reader of `.agents/skills/`: the
+    # reader is placed again for its now shared skills and commands only, so it
+    # becomes an owner of the copies it reads.
+    $sharedOnly = @()
+    if ($ActiveTools -contains 'codex') {
+        $sharedOnly = @($script:AgentsSkillsReaders | Where-Object { $canonicalTools -contains $_ -and $ActiveTools -notcontains $_ })
+    }
+    foreach ($tool in @(@($ActiveTools) + $sharedOnly)) {
+        $adapter = $canonicalAdapters[$tool]
+        $ownSections = $sharedOnly -notcontains $tool
         Write-Info "  [$tool] placing files"
 
         # rules
-        if ($adapter.rules -and $adapter.rules.copyTo) {
+        if ($ownSections -and $adapter.rules -and $adapter.rules.copyTo) {
             $copyTpl = $adapter.rules.copyTo
             $fmOps = $adapter.rules.frontmatter
             $mode = if ($adapter.rules.mode) { $adapter.rules.mode } else { 'transform' }
@@ -2616,7 +2847,7 @@ function Invoke-PlacePhase {
         }
 
         # agents
-        if ($adapter.agents -and $adapter.agents.copyTo) {
+        if ($ownSections -and $adapter.agents -and $adapter.agents.copyTo) {
             $copyTpl = $adapter.agents.copyTo
             $fmOps = $adapter.agents.frontmatter
             $mode = if ($adapter.agents.mode) { $adapter.agents.mode } else { 'transform' }
@@ -2641,6 +2872,24 @@ function Invoke-PlacePhase {
             foreach ($f in Get-ChildItem -File (Join-Path $SourceRoot 'content/commands') -Filter *.md) {
                 $parts = Split-FrontmatterAndBody (Read-TextFile $f.FullName)
                 $name = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+                if ($mode -eq 'skill') {
+                    $skillName = Get-CommandSkillName -SourceRoot $SourceRoot -Name $name
+                    $targetRaw = Resolve-CopyToPath $copyTpl $skillName
+                    $skillDir = Split-Path -Parent $targetRaw
+                    if (Test-ForeignSkillDir -Root $Root -TargetDir $skillDir -Manifest $Manifest) { continue }
+                    Invoke-PlaceArtifactFile -Root $Root -SourcePath $f.FullName `
+                        -TargetRel $targetRaw -SourceFm $parts.Frontmatter -SourceBody $parts.Body `
+                        -FrontmatterOps $fmOps -Mode $mode `
+                        -Manifest $Manifest -ContentSource ("content/commands/" + $f.Name) -OwnerTool $tool -Layouts $layouts
+                    if ($parts.Frontmatter -and [string]$parts.Frontmatter['userOnly'] -eq 'True') {
+                        # Codex: no implicit invocation of a service command.
+                        Invoke-PlaceArtifactFile -Root $Root -SourcePath $f.FullName `
+                            -TargetRel ($skillDir.Replace('\', '/') + '/agents/openai.yaml') `
+                            -SourceBody "policy:`n  allow_implicit_invocation: false`n" -Mode 'generated' `
+                            -Manifest $Manifest -ContentSource ("content/commands/" + $f.Name) -OwnerTool $tool -Layouts $layouts
+                    }
+                    continue
+                }
                 $targetRaw = Resolve-CopyToPath $copyTpl $name
                 # If target starts with ~/ (absolute home path), we need to write outside root
                 if ($copyTpl.StartsWith('~/')) {
@@ -2678,7 +2927,7 @@ function Invoke-PlacePhase {
         # installed by us and is byte-identical to what we recorded (lets a
         # changed stub template refresh cleanly); otherwise keep the user's
         # file. -Force / -ForcePaths overrides and rewrites the shipped stub.
-        if ($adapter.entry) {
+        if ($ownSections -and $adapter.entry) {
             $etarget = $adapter.entry.target
             $etpl = $adapter.entry.template
             if ($etarget) {
@@ -2724,6 +2973,8 @@ function Invoke-PlacePhase {
     # On-demand rules go to each active tool's rules directory only. The shared
     # `.ai-rules/rules/` mirror is no longer created — `AGENTS.md` references
     # the canonical tool's directory, resolved by `Resolve-CanonicalRulesDir`.
+
+    Remove-UnsharedSkillCopies -Root $Root -Manifest $Manifest -Tools $canonicalTools -NativeAdapters $nativeAdapters
 }
 
 # Priority order for choosing the "canonical" rules directory referenced by
@@ -2760,7 +3011,10 @@ function Resolve-CanonicalRulesLayout {
 function Resolve-CanonicalArtifactLayouts {
     param(
         [string[]]$ActiveTools,
-        [hashtable]$Adapters
+        [hashtable]$Adapters,
+        # Lets a `commands.mode: skill` layout know which commands are
+        # installed under another name (Get-CommandSkillName).
+        [string]$SourceRoot
     )
     $layouts = [ordered]@{}
     foreach ($section in @('rules', 'agents', 'commands', 'skills')) {
@@ -2776,6 +3030,15 @@ function Resolve-CanonicalArtifactLayouts {
             $ext = ''
             if ($copyTo -match '\{name\}\.([A-Za-z0-9]+)$') { $ext = $Matches[1] }
             $layouts[$section] = [ordered]@{ Dir = $dir; Ext = $ext; Tool = $tool; Template = $copyTo.Replace('\', '/') }
+            if ($section -eq 'commands' -and [string]$adapter[$section].mode -eq 'skill' -and $SourceRoot) {
+                $rename = @{}
+                foreach ($f in Get-ChildItem -File (Join-Path $SourceRoot 'content/commands') -Filter *.md -ErrorAction SilentlyContinue) {
+                    $name = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+                    $skillName = Get-CommandSkillName -SourceRoot $SourceRoot -Name $name
+                    if ($skillName -ne $name) { $rename[$name] = $skillName }
+                }
+                $layouts[$section]['Rename'] = $rename
+            }
             break
         }
     }
@@ -2821,12 +3084,14 @@ function Convert-AgentsMdPaths {
         $captureDir = $dir
         $captureExt = $ext
         $captureTemplate = [string]$Layouts[$section].Template
+        $captureRename = $Layouts[$section].Rename
         # Pass 1: file references — both directory and extension are rewritten
         # (the extension swap matters for Cursor's `.mdc` rules and Codex's
         # `.toml` agents).
         $result = [regex]::Replace($result, $entry.Pattern, {
             param($m)
             $name = $m.Groups[1].Value
+            if ($captureRename -and $captureRename.Contains($name)) { $name = $captureRename[$name] }
             if ($captureTemplate) { return $captureTemplate.Replace('{name}', $name) }
             return "$captureDir/$name.$captureExt"
         })
@@ -3843,7 +4108,8 @@ function Update-AgentsMd {
     # Resolve the canonical installed location for every artefact section
     # (rules / agents / commands / skills) so the readable source AGENTS.md
     # can be rewritten into a project-local file with no broken links.
-    $layouts = Resolve-CanonicalArtifactLayouts -ActiveTools $ActiveTools -Adapters $Adapters
+    $layouts = Resolve-CanonicalArtifactLayouts -ActiveTools $ActiveTools `
+        -Adapters (Get-SharedSkillsAdapters -Tools $ActiveTools -Adapters $Adapters) -SourceRoot $SourceRoot
 
     if (-not $layouts -or -not $layouts.Contains('rules')) {
         Write-Warn 'No active tool defines a rules directory; AGENTS.md content/<section>/ paths will not be rewritten.'
@@ -4035,11 +4301,13 @@ function Place-RootTemplates {
 #
 # Behaviour:
 #   - If the file already exists in the project root — preserve every user
-#     value. Migrations may append missing USE_EDT and TOOL_* keys.
+#     value. Migrations may append missing USE_EDT, CODE_OWNER and TOOL_*
+#     keys; a missing CODE_OWNER is asked when a person can answer.
 #   - If missing — render from the source `.dev.env.example` template,
 #     auto-fill what we can detect (PLATFORM_VERSION from Configuration.xml,
 #     PLATFORM_PATH from C:\Program Files\1cv8\, PREFIX from extension's
-#     NamePrefix), ask once whether the project uses EDT, and either prompt the
+#     NamePrefix), ask once whether the project uses EDT and who owns the
+#     code (CODE_OWNER), and either prompt the
 #     user for the remaining setup values (interactive mode) or use documented
 #     defaults / leave optional values empty with a warning (non-interactive).
 #
@@ -4054,8 +4322,9 @@ function Place-RootTemplates {
 #   LOG_PATH    (empty = $env:TEMP\1cv8.log),
 #   SUBAGENT_MODEL_CODING / SUBAGENT_MODEL_ANALYSIS / SUBAGENT_MODEL_LIGHT
 #   (empty = AI client default model; see SECTION 7b),
-#   AGENT_MODEL (empty = no model profile, base model-neutral ruleset; the
-#   parent agent's behaviour profile, toggled by the /rulesmodel command),
+#   AGENT_MODEL (empty = the agent applies the profile of the model it knows
+#   it runs; a slug decides only for an agent that cannot tell; off = no
+#   profile; edited by the /rulesmodel command),
 #   ORCHESTRATION (empty = standard; toggled by the /economymode command),
 #   QUICKFIX_MAX_LINES (empty = 40; quick-fix line budget),
 #   DEBUG_FAST_PATH (empty = standard; debugging fast-path mode),
@@ -4372,9 +4641,16 @@ function Place-DevEnv {
     }
     $text = Set-DevEnvValue -Text $text -Key $script:UseEdtKey -Value $edtUsage
 
+    # Code owner (CODE_OWNER): asked with an explanation of both owners when a
+    # person can answer, otherwise the default 'user'. If the template lacks
+    # the key, Ensure-CodeOwnerSetting appends it and reuses this answer.
+    $codeOwner = Resolve-CodeOwnerAnswer
+    $text = Set-DevEnvValue -Text $text -Key $script:CodeOwnerKey -Value $codeOwner
+
     # Persist the parent agent's model profile (AGENT_MODEL). Asked once here,
     # only while the file is being created — an existing .dev.env is never
-    # touched, and an empty value is fully valid (no profile, base ruleset).
+    # touched, and an empty value is fully valid (the agent then selects the
+    # profile by the model it knows it runs).
     $agentModel = Resolve-AgentModel -Root $Root
     if ($agentModel) { $text = Set-DevEnvValue -Text $text -Key $script:AgentModelKey -Value $agentModel }
 
@@ -4403,11 +4679,12 @@ function Place-DevEnv {
     if ($detectedPath)    { Write-Info "    autodetected PLATFORM_PATH    = $detectedPath" }
     if ($detectedPrefix)  { Write-Info "    autodetected PREFIX           = $detectedPrefix" }
     Write-Info "    USE_EDT = $edtUsage"
+    Write-Info "    CODE_OWNER = $codeOwner"
     if ($agentModel) {
         Write-Info ("    AGENT_MODEL = $agentModel (" + [string]$script:AgentModelProfiles[$agentModel] + ") — профиль правил model-$agentModel.md")
     }
     else {
-        Write-Info '    AGENT_MODEL не задан — профиль модели не применяется, действует базовый свод правил (задать: /rulesmodel <модель>)'
+        Write-Info '    AGENT_MODEL не задан — агент сам применит профиль своей модели, если он есть (задать явно: /rulesmodel <модель>, выключить: /rulesmodel off)'
     }
 
     # Final sanity check: report only operation-scoped empty fields. No field
@@ -4446,12 +4723,18 @@ function Ensure-ToolPolicySettings {
     $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
     if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += $newline }
     $text += $newline + '# Tool policy: auto (default), off, required; availability is checked separately.' + $newline
-    foreach ($key in $missing) { $text += $key + '=auto' + $newline }
+    foreach ($key in $missing) {
+        $value = 'auto'
+        if ($key -eq 'TOOL_AGENT_DESKTOP' -and $values.Contains('TOOL_WINDOWS_MCP')) {
+            $value = $values['TOOL_WINDOWS_MCP']
+        }
+        $text += $key + '=' + $value + $newline
+    }
     Write-TextFile -Path $target -Content $text
     if ($Manifest.files.Contains($script:DevEnvFileName)) {
         $Manifest.files[$script:DevEnvFileName]['installedHash'] = Get-FileSha256 $target
     }
-    Write-Info ('  .dev.env: added tool policy keys with auto defaults (' + ($missing -join ', ') + ')')
+    Write-Info ('  .dev.env: added missing tool policy keys (' + ($missing -join ', ') + ')')
 }
 
 function Ensure-EdtUsageSetting {
@@ -4493,6 +4776,78 @@ function Ensure-EdtUsageSetting {
     }
     Write-Info "  .dev.env: added USE_EDT=$edtUsage (по умолчанию 1C:EDT не используется)"
     Write-Info '    Проект разрабатывается в 1C:EDT? Запустите /installtools или /install-edt-mcp — они спросят и запишут USE_EDT=true (можно просто исправить значение в .dev.env).'
+}
+
+function Test-CodeOwnerPromptAllowed {
+    # The code-owner question needs a person at the console. With
+    # -NonInteractive, or when input is redirected (an agent shell, CI), no
+    # prompt is shown: an update must never block or fail on it.
+    if ($NonInteractive) { return $false }
+    try { return -not [Console]::IsInputRedirected } catch { return $false }
+}
+
+function Read-CodeOwnerChoice {
+    # Explains both owners and returns 'user' or 'agent'. Enter, an unknown
+    # answer or a failing prompt keep the default 'user'.
+    Write-Info ''
+    Write-Info '  Кто владелец кода проекта? От ответа зависит, чьим правилам агент следует при правках.'
+    Write-Info '    [1] Пользователь (по умолчанию). Правила задаёте вы: агент следует архитектуре и соглашениям,'
+    Write-Info '        которые уже есть в коде, меняет только то, что нужно задаче, а о посторонних проблемах сообщает.'
+    Write-Info '    [2] Модель. Правила устройства кода задаёт агент: он ведёт собственный код проекта как владелец,'
+    Write-Info '        по ходу задачи объединяет дублирующийся код и исправляет связанную структуру.'
+    Write-Info '        Правок и расхода токенов заметно больше, итоговый diff нужно просматривать внимательнее.'
+    Write-Info '    В обоих случаях типовой код поставщика, обязательные проверки и подтверждение опасных действий не меняются.'
+    $choice = '1'
+    try { $choice = [string](Read-Required '  Владелец кода (1 — пользователь, 2 — модель)' '1') } catch { $choice = '1' }
+    if ($choice.Trim() -match '^(2|agent|модель)$') { return 'agent' }
+    return 'user'
+}
+
+function Resolve-CodeOwnerAnswer {
+    # Returns the CODE_OWNER value for this run; the question fires at most once.
+    if ($null -ne $script:CodeOwnerAnswer) { return $script:CodeOwnerAnswer }
+    $script:CodeOwnerAsked = [bool](Test-CodeOwnerPromptAllowed)
+    $script:CodeOwnerAnswer = if ($script:CodeOwnerAsked) { Read-CodeOwnerChoice } else { 'user' }
+    return $script:CodeOwnerAnswer
+}
+
+function Ensure-CodeOwnerSetting {
+    # Migration for a .dev.env that predates CODE_OWNER. Unlike USE_EDT, the
+    # key is asked on update / add / init over an existing file as well: the
+    # owner changes how agents edit code, so an explicit answer beats a silent
+    # default. The question appears only where a person can answer
+    # (Test-CodeOwnerPromptAllowed); otherwise 'user' is written and reported.
+    # A present key - empty or invalid included - is the user's and is never
+    # touched.
+    param(
+        [string]$Root,
+        [System.Collections.IDictionary]$Manifest
+    )
+
+    $target = Join-Path $Root $script:DevEnvFileName
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
+    $values = Read-DevEnvKeys -Path $target
+    if ($values.Contains($script:CodeOwnerKey)) { return }
+
+    $codeOwner = Resolve-CodeOwnerAnswer
+    $text = Read-TextFile $target
+    $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += $newline }
+    $text += $newline +
+        '# Владелец кода: user — агент следует правилам, уже принятым в коде (по умолчанию);' + $newline +
+        '# agent — устройство собственного кода проекта задаёт агент (dev-standards-env-process.md → CODE_OWNER).' + $newline +
+        $script:CodeOwnerKey + '=' + $codeOwner + $newline
+    Write-TextFile -Path $target -Content $text
+    if ($Manifest.files.Contains($script:DevEnvFileName)) {
+        $Manifest.files[$script:DevEnvFileName]['installedHash'] = Get-FileSha256 $target
+    }
+    if ($script:CodeOwnerAsked) {
+        Write-Info "  .dev.env: added CODE_OWNER=$codeOwner"
+    }
+    else {
+        Write-Info '  .dev.env: added CODE_OWNER=user — владелец кода пользователь; вопрос не задан, потому что запуск идёт без интерактивного ввода.'
+        Write-Info '    Чтобы устройство кода задавал агент, впишите в .dev.env CODE_OWNER=agent.'
+    }
 }
 
 function Ensure-SupportSettings {
@@ -4793,6 +5148,7 @@ function Invoke-Init {
         $manifest.lastChannel = $script:LastChannel
         if (-not $manifest.files) { $manifest.files = [ordered]@{} }
         if (-not $manifest.mcpServers) { $manifest.mcpServers = @() }
+        Remove-LegacyCodexArtifacts -Root $Root -Manifest $manifest
     }
     else {
         $manifest = New-Manifest -Source $sourceRoot -Version $version
@@ -4829,6 +5185,7 @@ function Invoke-Init {
     Place-DevEnv -Root $Root -SourceRoot $sourceRoot -Manifest $manifest
     Invoke-LegacyInfobaseSettingsMigration -Root $Root -Manifest $manifest
     Ensure-EdtUsageSetting -Root $Root -Manifest $manifest
+    Ensure-CodeOwnerSetting -Root $Root -Manifest $manifest
     Ensure-SupportSettings -Root $Root -Manifest $manifest
 
     Write-Section 'Phase 7b: OpenSpec project.md (1C autodetect)'
@@ -4913,18 +5270,22 @@ function Write-RulesModelAnnouncement {
     param([string]$Root)
 
     $current = ''
+    $disabled = $false
     if ($Root) {
         $envPath = Join-Path $Root $script:DevEnvFileName
         if (Test-Path $envPath) {
             $keys = Read-DevEnvKeys -Path $envPath
             if ($keys.Contains($script:AgentModelKey)) {
-                $current = Resolve-AgentModelSlug -Raw ([string]$keys[$script:AgentModelKey])
+                $rawModel = [string]$keys[$script:AgentModelKey]
+                $disabled = ($rawModel.Trim() -eq 'off')
+                $current = Resolve-AgentModelSlug -Raw $rawModel
             }
         }
     }
     Write-Info ""
-    Write-Info "Адаптация правил под модель: введите /rulesmodel <модель> в чате AI-клиента (название — в любом"
-    Write-Info "написании, команда сама его распознает; /rulesmodel auto — определить текущую модель)."
+    Write-Info "Адаптация правил под модель: агент сам применяет профиль своей модели, если он есть. Задать явно —"
+    Write-Info "/rulesmodel <модель> в чате AI-клиента (название — в любом написании; /rulesmodel auto — определить"
+    Write-Info "текущую модель, /rulesmodel off — выключить профили)."
     Write-Info "Поддерживаемые профили: opus5 (Claude Opus 5), sonnet5 (Claude Sonnet 5), fable5 (Claude Fable 5),"
     Write-Info "gpt56 (GPT-5.6), gpt6 (GPT-6 Astra). Команда пишет AGENT_MODEL в .dev.env — действует на весь проект, включая новые чаты;"
     Write-Info "перерендер и перезапуск клиента не нужны. Профиль настраивает только стиль и инициативу (длина"
@@ -4932,8 +5293,11 @@ function Write-RulesModelAnnouncement {
     if ($current) {
         Write-Info ("Сейчас: AGENT_MODEL=$current (" + [string]$script:AgentModelProfiles[$current] + "). Выключить — /rulesmodel off.")
     }
+    elseif ($disabled) {
+        Write-Info "Сейчас: AGENT_MODEL=off — профили выключены, действует базовый (модель-нейтральный) свод правил. Включить — /rulesmodel reset."
+    }
     else {
-        Write-Info "Сейчас: AGENT_MODEL не задан — действует базовый (модель-нейтральный) свод правил."
+        Write-Info "Сейчас: AGENT_MODEL не задан — агент сам применяет профиль своей модели, если он есть."
     }
 }
 
@@ -5308,6 +5672,9 @@ function Invoke-Update {
         Write-Info "Migrated: removed $($claudeLegacyKeys.Count) managed entries from legacy .claude/rules/ (on-demand rules now live in .claude/rules-1c/)"
     }
 
+    Write-Section 'Migration: Codex prompts and .codex/skills/ (now .agents/skills/)'
+    Remove-LegacyCodexArtifacts -Root $Root -Manifest $manifest
+
     # Snapshot every path we currently track, before the per-update prune below
     # drops the non-userModified entries. Skill pruning consults this to avoid
     # deleting files the user added to a skill directory themselves.
@@ -5413,6 +5780,7 @@ function Invoke-Update {
     Place-DevEnv -Root $Root -SourceRoot $sourceRoot -Manifest $manifest
     Invoke-LegacyInfobaseSettingsMigration -Root $Root -Manifest $manifest
     Ensure-EdtUsageSetting -Root $Root -Manifest $manifest
+    Ensure-CodeOwnerSetting -Root $Root -Manifest $manifest
     Ensure-SupportSettings -Root $Root -Manifest $manifest
 
     Write-Section 'OpenSpec project.md (update / 1C autodetect)'
@@ -5512,6 +5880,7 @@ function Invoke-Add {
     Place-DevEnv -Root $Root -SourceRoot $sourceRoot -Manifest $manifest
     Invoke-LegacyInfobaseSettingsMigration -Root $Root -Manifest $manifest
     Ensure-EdtUsageSetting -Root $Root -Manifest $manifest
+    Ensure-CodeOwnerSetting -Root $Root -Manifest $manifest
     Ensure-SupportSettings -Root $Root -Manifest $manifest
     $extMcp = Resolve-ExternalMcpMode -ProjectRoot $Root
     if ($extMcp.Mode -eq 'external') {
@@ -5643,7 +6012,7 @@ function Invoke-Remove {
         switch ($ScopeTool) {
             'claude-code'   { $toolPrefixes = @('.claude/', 'CLAUDE.md', '.mcp.json') }
             'command-code'  { $toolPrefixes = @('.commandcode/', '.mcp.json') }
-            'codex'         { $toolPrefixes = @('.codex/') }
+            'codex'         { $toolPrefixes = @('.codex/', '.agents/skills/') }
             'opencode'      { $toolPrefixes = @('.opencode/', 'opencode.json') }
             'kilocode'      { $toolPrefixes = @('.kilo/', '.kilocode/') }
             'kimi'          { $toolPrefixes = @('.kimi-code/', '.kimi/') }
@@ -5757,6 +6126,7 @@ function Invoke-Remove {
                 'qwen'         { $cleanupDirs += '.qwen' }
                 'cline'        { $cleanupDirs += '.cline'; $cleanupDirs += '.clinerules' }
                 'pi'           { $cleanupDirs += '.pi' }
+                'codex'        { $cleanupDirs += '.codex'; $cleanupDirs += '.agents/skills'; $cleanupDirs += '.agents' }
                 default        { $cleanupDirs += ".$t" }
             }
         }

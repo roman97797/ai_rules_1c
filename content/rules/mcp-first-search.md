@@ -1,5 +1,5 @@
 ---
-description: MCP-first search — project-index MCP tools get a bounded attempt before Grep, Glob, directory listing or Read-scanning, with a one-line "what was tried" note on fallback. Load before any code, metadata, usage or file search in a 1C project.
+description: "Searching 1C project source — code, metadata, usages, files; project-index MCP versus Grep, Glob and Read. Load before any code, metadata, usage or file search in a 1C project."
 alwaysApply: false
 category: tooling
 ---
@@ -118,18 +118,3 @@ Before delivering a result that involved any native discovery tool (`Grep` / `Gl
 > *Tried `codesearch(query="...")` (empty), `search_function(name="...", exact=true)` (no match); fell back to `Grep` for the literal `<...>`.*
 
 One or two sentences. No bullet list of every parameter tried.
-
----
-
-## Success criteria
-
-- ✅ Eligible MCP project-index path attempted before any native discovery call (`Grep` / `Glob` / file search / directory listing / `Read`-scanning) on 1C project source — when exposed indexes cover the selected contour.
-- ✅ No "getting oriented" sweeps (source-tree globbing, bulk module reading) while an eligible project-index route covers that scope.
-- ✅ Fragment-level retrieval preferred over full-module `Read` when the need is one routine — outside the normal-work cases listed above.
-- ✅ Each failed MCP call closed a concrete context gap before the next call (no blind chaining, no "just to be safe").
-- ✅ After a missed MCP attempt — or with servers not exposed — fallback proceeded immediately; no ritual MCP calls made only to satisfy this rule.
-- ✅ A typed error or a named missing-index warning was treated as the final answer of that lane; no sibling-tool probing of the same gap.
-- ✅ Native-tool usage on project source is justified inline.
-- ✅ No duplicated calls against unchanged state.
-- ✅ A definitive "not found" conclusion is backed by current generation / readiness evidence; otherwise the MCP miss is reported as inconclusive and the documented fallback is used.
-- ✅ For a unified layered graph, the base `project_id` and relevant layers were used; uncovered contours took their own routes. Source/index conclusions were distinguished from evidence about a running infobase.

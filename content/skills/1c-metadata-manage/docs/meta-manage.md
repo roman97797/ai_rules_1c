@@ -82,7 +82,7 @@ Russian type synonyms: `Строка`, `Число`, `Булево`, `Дата`,
 
 Type-name rules:
 - A bare name that is not a known form (a typo such as `Nubmer(15,2)`) is **refused** with the list of valid forms; nothing is written. A name with a namespace prefix (`v8:ValueTable`, `ent:AccountType`, `v8ui:Color`) passes as is and is judged by `meta-validate` check 22.
-- DBMS spellings are translated: `integer`/`int`/`int4` → `Number(10,0)`, `bigint` → `Number(19,0)`, `smallint` → `Number(5,0)`, `numeric(p,s)` → `Number(p,s)`, `varchar(n)` / `character varying(n)` → `String(n)`, `timestamp` → `DateTime`, `bytea` → `BinaryData` (`ДвоичныеДанные` / `BinaryData` is its own type, not `ValueStorage`; `base64Binary` still means `ValueStorage`).
+- DBMS spellings are translated: `integer`/`int`/`int4` → `Number(10,0)`, `bigint` → `Number(19,0)`, `smallint` → `Number(5,0)`, `numeric(p,s)` → `Number(p,s)`, `varchar(n)` / `character varying(n)` → `String(n)`, `timestamp` → `DateTime`, `bytea` → `BinaryData` (`ДвоичныеДанные` / `BinaryData` is its own type, not `ValueStorage`). `ValueStorage` / `ХранилищеЗначения` is `v8:ValueStorage`. `base64Binary` is `BinaryData` (`xs:base64Binary`), not storage.
 - A `Constant` without `valueType` is `String(10)` (the object kind no longer leaks into the value type).
 - `numberLength: 0` on a document, business process or task drops `Number` from the default `InputByString`.
 
@@ -204,7 +204,7 @@ Registration adds exactly one `<Kind>Name</Kind>` line; the rest of the file is 
 | `end` (default / empty) | After the last object of the same kind — what Configurator does |
 | `byName` | Alphabetically inside the kind group, by the deterministic 1C-tree comparator (standard АПК:1108) |
 
-Regardless of the value: a group of a kind **not yet present** in the file is inserted in canonical kind order rather than appended to the end of the block, and the order-sensitive kinds (`Subsystem`, `CommandGroup`, `CommonAttribute`, `Language`) are never sorted by name. Objects already registered are never moved. Parameter reference — `content/rules/dev-standards-env.md → NEW_OBJECT_POSITION`.
+Regardless of the value: a group of a kind **not yet present** in the file is inserted in canonical kind order rather than appended to the end of the block, and the order-sensitive kinds (`Subsystem`, `CommandGroup`, `CommonAttribute`, `Language`) are never sorted by name. Objects already registered are never moved. Parameter class and default — `content/rules/dev-standards-env.md §1` (Infobase / deployment table).
 
 ## Verification
 
@@ -238,6 +238,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-meta-edit/scr
 | Operation | Inline operation (alternative to DefinitionFile) |
 | Value | Value for inline operation |
 | DefinitionFile | JSON file with operations (alternative to Operation) |
+| SourceFile | `import-attribute` only: XML of the same object from the previous dump |
 | NoValidate | Skip the automatic validation after editing — the only opt-out |
 
 ## Results, Refusals and Validation
@@ -247,6 +248,17 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-meta-edit/scr
 - After a successful edit the validator runs automatically and **its exit code is the run's result**: `meta-validate` from `1c-meta-validate` for configuration objects, `epf-validate` from `1c-epf-validate` for an external data processor / report. A missing validator is a refusal raised before the edit is written, never a silent skip. The Python runtime has no `epf-validate.py`: for an EPF / ERF it runs `epf-validate.ps1` through `pwsh` (or Windows PowerShell) and refuses before the write when no PowerShell host exists.
 - `modify-property` writes canonical XML: enum values are normalized (synonyms, case) and unknown ones rejected, the key is matched case-insensitively and written in its canonical case, an empty multilingual property is written as XML, `CodeLength` / `NumberLength` `0` also drops `Code` / `Number` from `InputByString`. In an extension a missing `RegisterRecords` is created on a borrowed document.
 - **External data sources**: on a source file `meta-edit` adds fields, tables (`add.tables` creates `<Source>/Tables/<Table>.xml` and registers it) and functions with the `meta-compile` syntax; removing a table is `meta-remove ExternalDataSource.<Source>.Table.<Table>`. Re-running `meta-compile` over an existing source is refused without `-Force` (it would give the source a new uuid).
+- **Carrying an attribute onto a new dump** (local, PowerShell only): `-Operation import-attribute -SourceFile <previous XML of the same object> -Value <Name>` copies the native `<Attribute>` element with its **original uuid** and every property — `add-attribute` would give it a new uuid. A different owner (kind or name), the same file, a missing attribute or invalid uuid, a target attribute of that name with other content, a uuid already used in the target file — exit 1, nothing written. An identical attribute already in the target is a no-op (the file is not rewritten). If `meta-validate` fails, the original bytes of the target are restored. The uuid is checked inside the target file only; check the whole dump with `uuid-check` ([uuid-check.md](uuid-check.md)). Details: [child-operations.md](../tools/1c-meta-edit/child-operations.md#import-attribute).
+
+## Stored data — removing and narrowing
+
+Removing or narrowing what the infobase stores changes the database structure, and the next infobase update restructures it (ITS «Практическое пособие разработчика → Основная конфигурация и конфигурация базы данных»). These are a `remove-*` of a stored element (`remove-attribute`, `remove-ts`, `remove-ts-attribute`, `remove-enumValue`, a register dimension or resource), a `modify-*` with a narrower `type=` (a shorter string or number, a type replaced, a type dropped from a composite set) and `meta-remove` of an object that holds records. Standard std534 (`fetch_its` id `its-v8std-534-hdoc`) settles the data before the edit:
+
+- **Delete or transfer is the task's decision.** When the task does not state it and the element may already hold data — it is in a released version or in an infobase — that is a `CONFUSION` fork (`AGENTS.md → Think Before Coding`): the two answers produce different releases.
+- **A transfer keeps the old element** under the `Удалить` prefix with «(не используется)» in its synonym (`modify-attribute "Договор: name=УдалитьДоговор, synonym=(не используется) Договор"`), moves its data in an infobase update handler, replaces every reference to it in code, roles, event subscriptions and forms, and removes it irreversibly only in a later release.
+- **An information-register dimension** that is removed or narrowed can fail the restructuring with «Записи регистра стали неуникальными»: create a new register and transfer the records, or set the dimension's «Режим сокращения типа» to «Удалять данные» when the data may go.
+
+Name the decision in the plan (`SKILL.md → Plan unit`) and in the delivery report.
 
 ## Operations — Summary Table
 
@@ -271,6 +283,7 @@ Batch via `;;` in all operations. Detailed syntax in linked reference files.
 | `modify-attribute` | `Name: key=value` | `"OldName: name=NewName, type=String(500)"` |
 | `modify-ts-attribute` | `TS.Name: key=value` | `"Товары.Attr: name=NewName"` |
 | `modify-ts` | `TS: key=value` | `"Товары: synonym=Product Items"` |
+| `import-attribute` | `Name` + `-SourceFile` | `-SourceFile "old/Catalogs/Товары.xml" -Value "Артикул"` — native element with its uuid (local, PowerShell only) |
 
 Positional insert: `"Склад: CatalogRef.Склады >> after Организация"`.
 
@@ -310,6 +323,9 @@ For combined operations (add + remove + modify in one file), key/type synonyms, 
 
 # Catalog owners
 -Operation set-owners -Value "Catalog.Контрагенты ;; Catalog.Организации"
+
+# Carry an attribute (with its uuid) from the previous dump of the same object
+-Operation import-attribute -SourceFile "old-dump/Catalogs/Товары.xml" -Value "ДопАртикул"
 ```
 
 ## Verification
@@ -391,7 +407,7 @@ The type labels it prints (`ДокументОбъект.Заказ`, `ПВХС�
 ---
 ## 4. Remove — Delete Object
 
-Safely removes an object from a 1C configuration XML export. Before deletion, checks for references to the object in attributes, code, and other metadata. If references are found, deletion is blocked.
+Safely removes an object from a 1C configuration XML export. Before deletion, checks for references to the object in attributes, code, and other metadata. If references are found, deletion is blocked. An object that holds records follows *Stored data — removing and narrowing* above before this tool runs.
 
 ## Usage
 
@@ -514,6 +530,7 @@ powershell.exe -NoProfile -File skills/1c-metadata-manage/tools/1c-meta-validate
 | 23 | Type set inside a defined type is ERROR; a bare metatype in a characteristic-types chart or a composite defined type / characteristic warns | ERROR / WARN |
 | 24 | A body (`Ext/*.xml`, Help, Predefined, Rights, Form, `<BaseForm>`) stamped with a version different from its descriptor is ERROR; an object or form whose version differs from the dump (`Configuration.xml` or the EPF/ERF root) is WARN — measured on 8.3.27: a whole object in another format version loads, a body out of step with its descriptor does not | ERROR / WARN |
 | 25 | Multilingual string holding plain text instead of `<v8:item>` | ERROR |
+| 26 | Unlimited `String` on an indexed dimension, a data separator or a property with `Indexing` other than `DontIndex` — the load can pass and `/UpdateDBCfg` then fails | ERROR |
 
 Local checks (not in upstream): 6a–6d, 6f, 6g, 6h, 12, 16a, and the stricter 2 and 8. The former local 1e / 6e ("every file carries the `Configuration.xml` version", ERROR) are retired in favour of 24. Both runtimes (`.ps1` / `.py`) print the same messages; the Python runtime takes named arguments (`-ObjectPath <path>`).
 

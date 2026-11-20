@@ -10,7 +10,7 @@ Resolve project, main/named-extension target and source root through `content/ru
 
 When the user asks to deploy the full snapshot ("all" / "with extensions"), resolve inventory even if `EXTENSION_NAMES` is empty, then run `/update1cbase all` followed by `/updatedbcfg all` (or the per-target sequence below). Confirmed no extensions means main only; a stored single-extension default cannot narrow `all`.
 
-**Load is owned by `/update1cbase`; database apply is owned by `/updatedbcfg`.** This orchestrator is an explicit request to deploy, so it runs both in order: load → checks → apply → UI tests. For partial / Git deployment, follow `/update1cbase → Select load scope` for the load (including file-list validation and baseline handling), then `/updatedbcfg` for apply, then continue here at Step 4. A failed load or apply blocks UI tests. Never treat a finished `/update1cbase` alone as a completed deploy. A requested return export follows `/loadfrom1cbase` after apply with the same target and scope guards (`content/rules/getconfigfiles.md → Configuration file synchronization contract`).
+**Load is owned by `/update1cbase`; database apply is owned by `/updatedbcfg`.** This orchestrator is an explicit request to deploy, so it runs both in order: load → checks → apply → UI tests. For partial / Git deployment, follow `/update1cbase → Select load scope` for the load (including file-list validation and baseline handling), then `/updatedbcfg` for apply, then continue here at Step 4. Do not execute a second full-load template in this file. A failed load or apply blocks UI tests. Never treat a finished `/update1cbase` alone as a completed deploy. A requested return export follows `/loadfrom1cbase` after apply with the same target and scope guards (`content/rules/config-sync-contract.md`).
 
 ## Step 0. Check `.dev.env` parameters
 
@@ -26,7 +26,7 @@ Before running, inherit `/update1cbase`'s source-identity, completeness and sele
 
 **EDT gate:** when `.dev.env` `USE_EDT=true`, the same source-format check as `/update1cbase` applies — the load uses a Designer XML dump, not an EDT `src/**/*.mdo` tree, and only one deployment owner (this command **or** EDT's `update_database`) may act on the infobase in a run. Canon — `content/rules/edt-workflow.md`.
 
-This command uses forced session termination while applying the DB configuration (`/updatedbcfg`). The target must be an explicitly identified dev/test infobase: `.dev.env` `INFOBASE_ROLE=dev|test` identifies it, `prod` refuses the deploy steps (canon `content/rules/dev-standards-env.md → INFOBASE_ROLE`). If the role is empty and the current context does not establish it, stop before `/updatedbcfg` and ask the user to confirm the target; never infer that an arbitrary `.dev.env` points to a test base.
+This command uses forced session termination while applying the DB configuration (`/updatedbcfg`). The target must be an explicitly identified dev/test infobase: `.dev.env` `INFOBASE_ROLE=dev|test` identifies it, `prod` refuses the deploy steps (canon `content/rules/dev-standards-env.md → INFOBASE_ROLE`). If the role is empty and the current context does not establish it, stop before Step 2 and ask the user to confirm the target — the load already changes the infobase configuration; never infer that an arbitrary `.dev.env` points to a test base.
 
 ## Step 1. Choose tool: `ibcmd` or Designer
 
@@ -76,13 +76,9 @@ Load `content/rules/ui-testing-tools.md` and run its **Preflight before web UI t
 
 ### Step 4c. Run web scenarios
 
-Open `{INFOBASE_PUBLISH_URL}` with the tool chosen in 4b. Prefer **`agent-browser`** (a11y snapshots); built-in browser MCP only after decline / no-operator fallback; **`Windows-MCP`** (`/install-windows-mcp`) only for unavoidable desktop / thick-client automation — never as the default for the web client, never a home-grown screenshotter/OCR. Rules:
+Open `{INFOBASE_PUBLISH_URL}` with the tool chosen in 4b. Prefer **`agent-browser`** (a11y snapshots); built-in browser MCP only after decline / no-operator fallback; **`agent-desktop`** (`/install-agent-desktop`) only for native windows outside the 1C testing model — never for a web page, never a home-grown screenshotter/OCR. Rules:
 
-- Prefer snapshot/refs observe loops over screenshot/vision.
-- **MUST** use delayed human-like typing when filling fields.
-- Use TAB to move between form fields.
-- Wait for elements to load before interacting.
-- Take screenshots at key steps for documentation (evidence, not the observe loop).
+Driving rules — `content/rules/web-client-driving.md`: headed run, snapshot / refs observe loop, human-like typing with its paste fallback, TAB between fields, waits, screenshots of key steps as evidence.
 
 ## Step 5. Final report
 

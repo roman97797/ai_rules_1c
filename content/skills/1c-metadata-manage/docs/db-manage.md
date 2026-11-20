@@ -4,7 +4,7 @@ Comprehensive database management: registry (.v8-project.json) and platform oper
 
 ## Integration with configuration synchronization
 
-Read `content/rules/getconfigfiles.md → Configuration file synchronization contract` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates load and checks only (never database apply); `/updatedbcfg` owns `/UpdateDBCfg` / `db-update` and runs only on explicit request or as a documented step of `/deploy-and-test`, `/restore-testbase`, `/build-release`.
+Read `content/rules/config-sync-contract.md` for transfer scope, object lists vs file lists, baseline handling and failure boundaries. `/loadfrom1cbase` orchestrates directory refresh (full / changes / partial via `/getconfigfiles`); `/update1cbase` orchestrates load and checks only (never database apply); `/updatedbcfg` owns `/UpdateDBCfg` / `db-update` and runs only on explicit request or as a documented step of `/deploy-and-test`, `/restore-testbase`, `/build-release`.
 
 These scripts implement individual stages. Keep load and apply separate (omit loader `-UpdateDB`). `/update1cbase` never continues into `db-update`. When an orchestrator that owns apply has already requested database update, continue from a successful load through the required checks to `/updatedbcfg` / `db-update`. Use one executor per stage and the same infobase, extension and source root throughout.
 

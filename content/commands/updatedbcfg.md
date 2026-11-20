@@ -50,7 +50,7 @@ When substituting `.dev.env` values into the templates below, resolve `{INFOBASE
 
 ## Step 2. Applicability check — mandatory when an extension is applied
 
-Whenever this run applies an extension (the resolved target is that extension, or an extension pass of `all`), run **ladder steps 1–2** before Step 3 — `/CheckModules` then `/CheckCanApplyConfigurationExtensions` (canon `content/rules/designer-batch-checks.md → The check ladder`, verification contract `content/rules/verification-gates.md → Gate 6`). Same launches as `/update1cbase → Step 2c`. A stored `EXTENSION_NAME` does not make a main apply an extension apply. Read the three-signal verdict after each launch; stop at the first failure and do not run Step 3. Ladder step 4 is this command's Step 3, not a second apply.
+Whenever this run applies an extension (the resolved target is that extension, or an extension pass of `all`), run **ladder steps 1–2** before Step 3 — `/CheckModules` then `/CheckCanApplyConfigurationExtensions` (canon `content/rules/designer-batch-checks.md → The check ladder`, verification contract `content/rules/verification-gates.md → Gate 6`). Same launches as `/update1cbase → Step 2c`. A stored `EXTENSION_NAME` does not make a main apply an extension apply. Read the three-signal verdict after each launch; stop at the first failure and do not run Step 3. Database apply is this command's Step 3; it is not a check.
 
 When applying through `ibcmd`, this Designer check against the same infobase is still mandatory — `ibcmd` has no applicability check of its own.
 

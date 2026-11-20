@@ -6,7 +6,7 @@ category: tooling
 
 # 1C web client — reading and driving the UI
 
-`ui-testing-tools.md` decides **which** driver runs (`agent-browser` → built-in browser MCP → `Windows-MCP`). This file is the layer above: **how the 1C web client behaves** once a driver is attached. The behaviours below are properties of the 1C managed-form web client, not of any one tool — they hold for `agent-browser` snapshots, for a browser MCP, and for raw CDP alike.
+`ui-testing-tools.md` decides **which** driver runs (`agent-browser` → built-in browser MCP). This file is the layer above: **how the 1C web client behaves** once a driver is attached. The behaviours below are properties of the 1C managed-form web client, not of any one tool — they hold for `agent-browser` snapshots, for a browser MCP, and for raw CDP alike.
 
 **When to load:** after the preflight gate of `ui-testing-tools.md`, before the first navigation to `INFOBASE_PUBLISH_URL` — `1c-tester`, `/deploy-and-test` Step 4, or an ad-hoc web check.
 
@@ -16,7 +16,7 @@ category: tooling
 
 | Fact | Consequence |
 |---|---|
-| **Headed only.** The 1C web client does not run reliably headless. | Launch the driver in headed mode. A headless run that "works" is usually rendering a login page and nothing else. |
+| **Headed only.** The 1C web client does not run reliably headless. | Launch the driver in headed mode (`agent-browser --headed` or `AGENT_BROWSER_HEADED=1`; a saved Playwright suite — `headless: false`). A headless run that "works" is usually rendering a login page and nothing else. |
 | **Cold start is 30–60 s.** First connect loads the whole managed-application client. | Wait for the section panel to appear in the snapshot before the first action. Do not treat a slow first load as a failure and retry — the retry restarts the same 60 s. |
 | **1C emits non-breaking spaces (` `)**, not regular spaces, in captions, numbers and totals. | Normalize ` ` → space on **both** sides before comparing snapshot text to an expected string. A "не найдено" on a caption you can plainly see in a screenshot is almost always this. |
 | **Section panel must display text.** With "Картинка" (icon-only) display mode the section names are not in the accessible tree. | If sections are unreadable, switch the panel to "Картинка и текст" / "Текст" in the client settings, or navigate by metadata path (§2) instead. |
@@ -27,8 +27,8 @@ category: tooling
 Preference order — cheapest and most robust first:
 
 1. **By metadata path (`Shift+F11`).** Opens the "Перейти по ссылке" dialog; accepts `Документ.ЗаказКлиента`, `Справочник.Контрагенты`, `РегистрНакопления.ЗаказыКлиентов`. Bypasses the section panel and the command panel entirely. This is the fastest way to reach a specific object in tests, and it is immune to interface / subsystem layout differences between configurations.
-2. **Section → command.** Click the section in the panel, then the command in the function panel. Use when the test is *about* the command interface, or when the object has no direct link.
-3. **External processor / report (`*.epf` / `*.erf`)** — "Файл → Открыть". The platform raises a **security confirmation dialog** ("Открытие файла... небезопасно") before loading. Expect it and confirm it; a hang here reads as "the processor never opened".
+2. **Section → command.** Click the section in the panel, then the command in the function panel. Use when the test is *about* the command interface, or when the object has no direct link. Opening a form from a command closes that function panel. An empty command list afterwards is the closed panel, not a missing command: click the section again before the next command.
+3. **External processor / report (`*.epf` / `*.erf`)** — "Файл → Открыть". The platform raises a **security confirmation dialog** ("Открытие файла... небезопасно") before loading. Expect it. Confirm it only for a file this task built or the user named; otherwise hand it to the person, as on the QA route. A hang here reads as "the processor never opened".
 
 After any navigation, re-snapshot before acting — refs from a previous snapshot are stale.
 
@@ -53,7 +53,7 @@ Things to actively look for, because they change what to do next:
 
 ## 5. Filling fields
 
-- **Typing stays the default** — human-like typing with 50–100 ms between characters, `TAB` between fields, per `1c-tester` → "Browser Interaction Guidelines". Reference fields need real input events for the typeahead (подбор) to fire, and typing produces them.
+- **Typing stays the default** — human-like typing with 50–100 ms between characters, `TAB` between fields. Reference fields need real input events for the typeahead (подбор) to fire, and typing produces them.
 - **Clipboard paste is the documented fallback**, not the default: if a typed value does not register (the field clears on `TAB`, or the platform never fires its change event), fill via clipboard paste, then `TAB` and verify the field kept the value. Note the fallback in the test report — a field that only accepts paste is itself a finding.
 - **Clearing a field is `Shift+F4`**, not selecting the text and deleting. Deleting characters leaves reference fields in a "partially typed" state that the platform may re-resolve on exit.
 - **Reference fields:** `F4` opens the selection form (use it when the typeahead is ambiguous — pick the row explicitly), `F8` creates a new catalog item from the field.
@@ -109,7 +109,7 @@ Findings of upstream cc-1c-skills `web-test`, not re-measured in this ruleset; w
 - **Another user without republishing** (measured upstream on 8.3.20–8.5.1). A plain navigation logs in the publication's `Usr=`. To log in as another user, submit a form from the page itself, so the session cookie lands in the browser (set the values through DOM properties, not markup): `POST <publication>/e1cib/start` with `Usr`, `Pwd` (may be empty) and `AuthFailHandling=error`. The request's user overrides the vrd's; launch parameters (`C=`, `L=`, …) survive only in that URL's query, not as form fields. Answer: `301` — logged in; `402` — wrong name or password; `412` — no right to the web client; `403`, or `400` with `reason` 9 — no free licence. The password comes from an environment variable, never from the chat or a committed file.
 - **File choice.** Two windows can answer a file button:
   - the 1C «Выбор файлов» window is part of the page: its «выберите с диска» link opens the browser's file chooser — answer it with the driver's file-chooser / upload facility, then press the window's OK (`#fileSelectDialogOk`). Files only;
-  - with the file system extension attached, a native dialog (process `1CFileExtension*`, window `#32770`; folders too) opens outside the browser, out of the driver's reach. Upstream reports UI Automation does not see it from the desktop root. Windows-MCP lists elements through UI Automation, so its element list may miss it — unverified, and so is typing the full path into it and pressing Enter. If Windows-MCP shows the dialog, fill it there; otherwise hand the step to the person or report it unverified. Never write a Win32 helper for it. The report covers the web client only, not the thin client's dialogs.
+  - with the file system extension attached, a native dialog (process `1CFileExtension*`, window `#32770`; folders too) opens outside the browser, out of the driver's reach. Upstream reports UI Automation does not see it from the desktop root. On Windows, agent-desktop reads elements through UI Automation, so its element list may miss it — unverified, and so is typing the full path into it and pressing Enter. If agent-desktop shows the dialog, fill it there; otherwise hand the step to the person or report it unverified. Never write a Win32 helper for it. The report covers the web client only, not the thin client's dialogs.
 - **HTML document field** (`ПолеHTMLДокумента`) is an `iframe` holding the application's own page. It exists only after the field is first shown: open its page or expand its group first. Take the field on the active form only — an older instance of the form and a field under a modal window have frames too. Actions inside the frame surface no 1C errors: after one that calls the server, read the form's error dialog and messages before asserting. Whether `agent-browser` snapshots descend into such frames is unverified; a Playwright suite uses a frame locator.
 
 ## 11. Companion rules

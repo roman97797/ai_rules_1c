@@ -8,7 +8,7 @@ argumentHint: "[on|off|status|models|rtk]"
 
 Toggle the orchestrator economy mode for the **project** by writing the `ORCHESTRATION` key in `.dev.env`. Canonical behavior of the mode — the `orchestrator-economy.md` rule (installed copy; match by file name per the path convention in `AGENTS.md`). Load that rule before acting.
 
-Parameters, classes and defaults — `content/rules/dev-standards-env.md §1`; Defaulted keys are never asked for. Asking about models **inside this command** is allowed and expected: it is part of an explicit user-invoked configuration flow, not "task time".
+Parameters, classes and defaults — `content/rules/dev-standards-env-process.md`; Defaulted keys are never asked for. Asking about models **inside this command** is allowed and expected: it is part of an explicit user-invoked configuration flow, not "task time".
 
 Parse the argument: empty or `on` — enable; `off` — disable; `status` — report the current state; `models` — (re)configure per-tier subagent models without changing the mode; `rtk` — run `/install-rtk` (`content/commands/install-rtk.md`) without changing the mode.
 
@@ -55,4 +55,4 @@ Run `/install-rtk` (`content/commands/install-rtk.md`) — install, wire into th
 
 ## Constraints (always)
 
-The mode never overrides stricter rules: quick-fix / docs-fix tasks stay with the parent, `1c-code-reviewer` runs only on an explicit user request, UI testing stays gated by `UI_TESTING`, validator chains and the verification gate are unchanged, model-tier routing stays authoritative. Details — `orchestrator-economy.md → Consistency with the existing orchestration rules`.
+The mode never overrides stricter rules: quick-fix / docs-fix tasks stay with the parent, `1c-code-reviewer` runs only on an explicit user request, UI testing stays gated by `UI_TESTING`, validator chains and the verification gate are unchanged, model-tier routing stays authoritative. Details — `orchestrator-economy.md → What the mode does not change`.
