@@ -100,6 +100,7 @@ public static class Fake1cv8
             else if (string.Equals(a, "/DumpResult", StringComparison.OrdinalIgnoreCase)) resultPath = args[i + 1];
             else if (string.Equals(a, "-Objects", StringComparison.OrdinalIgnoreCase)) objectsPath = args[i + 1];
             else if (string.Equals(a, "/ConfigurationRepositoryReport", StringComparison.OrdinalIgnoreCase)) reportPath = args[i + 1];
+            else if (string.Equals(a, "-ReportFile", StringComparison.OrdinalIgnoreCase)) reportPath = args[i + 1];
         }
         string capture = Environment.GetEnvironmentVariable("FAKE1C_CAPTURE");
         if (!string.IsNullOrEmpty(capture))
@@ -109,7 +110,12 @@ public static class Fake1cv8
         }
         string log = Environment.GetEnvironmentVariable("FAKE1C_LOG");
         if (outPath != null && !string.IsNullOrEmpty(log) && File.Exists(log)) File.Copy(log, outPath, true);
-        if (reportPath != null) File.WriteAllText(reportPath, "fake repository report", new UTF8Encoding(true));
+        string report = Environment.GetEnvironmentVariable("FAKE1C_REPORT");
+        if (reportPath != null)
+        {
+            if (!string.IsNullOrEmpty(report) && File.Exists(report)) File.Copy(report, reportPath, true);
+            else File.WriteAllText(reportPath, "fake repository report", new UTF8Encoding(true));
+        }
         int exit = 0;
         int.TryParse(Environment.GetEnvironmentVariable("FAKE1C_EXIT") ?? "0", out exit);
         string result = Environment.GetEnvironmentVariable("FAKE1C_RESULT");
@@ -140,14 +146,15 @@ function New-RepoCase([string]$Work, [string[]]$DevEnv = @()) {
     return [pscustomobject]@{ Work = $Work; Ib = $ib; Tmp = $tmp; Capture = (Join-Path $Work 'capture.txt') }
 }
 
-function Invoke-RepoOps($Case, [string[]]$ToolArgs, [string]$Log = '', [int]$Exit = 0, [string]$Result = '', [switch]$NoDefaults) {
+function Invoke-RepoOps($Case, [string[]]$ToolArgs, [string]$Log = '', [int]$Exit = 0, [string]$Result = '', [switch]$NoDefaults, [string]$Report = '') {
     $stdout = Join-Path $Case.Work ('stdout-' + [guid]::NewGuid().ToString('N') + '.txt')
     $stderr = $stdout + '.err'
     Remove-Item -LiteralPath $Case.Capture, ($Case.Capture + '.objects.xml') -Force -ErrorAction SilentlyContinue
     $saved = @{}
-    foreach ($k in 'FAKE1C_LOG', 'FAKE1C_EXIT', 'FAKE1C_RESULT', 'FAKE1C_CAPTURE', 'TEMP', 'TMP') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+    foreach ($k in 'FAKE1C_LOG', 'FAKE1C_EXIT', 'FAKE1C_RESULT', 'FAKE1C_CAPTURE', 'FAKE1C_REPORT', 'TEMP', 'TMP') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
     try {
         $env:FAKE1C_LOG = if ($Log) { Join-Path $FixturesDir $Log } else { '' }
+        $env:FAKE1C_REPORT = if ($Report) { Join-Path $FixturesDir $Report } else { '' }
         $env:FAKE1C_EXIT = "$Exit"
         $env:FAKE1C_RESULT = $Result
         $env:FAKE1C_CAPTURE = $Case.Capture
@@ -291,6 +298,55 @@ Register-Case 'unlock: local changes refuse the unlock and name the objects' {
     Assert-Contains $r.Out 'Unlock refused: these objects have local changes (1):' 'refusal named'
 }
 
+Register-Case 'unlock: -Force that leaves another user''s lock in place is a failure' {
+    param($Work)
+    $c = New-RepoCase $Work @('REPOSITORY_ALLOW_FORCE=true')
+    $r = Invoke-RepoOps $c @('-Operation', 'unlock', '-Objects', (N 'catalog'), '-Force', '-ConfirmDiscardChanges') 'unlock-other-holder.log' 0
+    Assert-Equal 1 $r.ExitCode 'exit code'
+    Assert-Contains $r.Out 'NOT released' 'not released named'
+    Assert-Contains $r.Out 'held by Ivanov' 'holder named'
+    Assert-Contains $r.CommandLine '-force' 'force passed'
+}
+
+Register-Case 'unlock: another user''s lock without -Force is a named no-op' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $r = Invoke-RepoOps $c @('-Operation', 'unlock', '-Objects', (N 'catalog')) 'unlock-other-holder.log' 0
+    Assert-Equal 0 $r.ExitCode 'exit code'
+    Assert-Contains $r.Out 'not yours, nothing to release' 'no-op named'
+    Assert-Contains $r.Out 'held by Ivanov' 'holder named'
+}
+
+# ---------------------------------------------------------------- cases: diff
+
+Register-Case 'diff: without -Version the head version is read first' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $r = Invoke-RepoOps $c @('-Operation', 'diff') '' 0 -Report 'report-head.txt'
+    Assert-Equal 0 $r.ExitCode 'exit code'
+    Assert-Contains $r.Out 'repository head: version 7' 'head named'
+    Assert-Contains $r.CommandLine '/CompareCfg' 'comparison launched'
+    Assert-Contains $r.CommandLine '-SecondVersion 7' 'head passed to the comparison'
+}
+
+Register-Case 'diff: an unreadable head stops before the comparison' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $r = Invoke-RepoOps $c @('-Operation', 'diff') '' 0
+    Assert-Equal 1 $r.ExitCode 'exit code'
+    Assert-Contains $r.Out 'head version could not be read' 'failure named'
+    Assert-NotContains $r.CommandLine '/CompareCfg' 'comparison not launched'
+}
+
+Register-Case 'diff: an explicit -Version skips the head report' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $r = Invoke-RepoOps $c @('-Operation', 'diff', '-Version', '5') '' 0
+    Assert-Equal 0 $r.ExitCode 'exit code'
+    Assert-Contains $r.CommandLine '-SecondVersion 5' 'version passed'
+    Assert-NotContains $r.Out 'repository head' 'no head lookup'
+}
+
 Register-Case 'commit: nothing changed creates no version and says so' {
     param($Work)
     $c = New-RepoCase $Work
@@ -298,6 +354,42 @@ Register-Case 'commit: nothing changed creates no version and says so' {
     Assert-Equal 0 $r.ExitCode 'exit code'
     Assert-Contains $r.Out 'Unchanged - not committed (1):'.Replace(' - ', ' ' + [char]0x2014 + ' ') 'unchanged list'
     Assert-Contains $r.Out 'No new repository version was created' 'no version'
+}
+
+Register-Case 'commit: -CommentFile passes quotes and every line' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $file = Join-Path $Work 'comment.txt'
+    $q = [string][char]34
+    [System.IO.File]::WriteAllText($file, ('TASK-1: ' + $q + 'x' + $q + "`r`nsecond line`n"), (New-Object System.Text.UTF8Encoding($true)))
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-CommentFile', $file) 'commit-unchanged.log' 0
+    Assert-Equal 0 $r.ExitCode 'exit code'
+    Assert-Contains $r.CommandLine ('-comment ' + $q + 'TASK-1: ' + $q + $q + 'x' + $q + $q + $q) 'quotes doubled, kept'
+    Assert-Contains $r.CommandLine ('-comment ' + $q + 'second line' + $q) 'second line'
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-CommentFile', $file, '-Comment', 'x') 'commit-unchanged.log' 0
+    Assert-Equal 1 $r.ExitCode 'both comments refused'
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-CommentFile', (Join-Path $Work 'missing.txt')) 'commit-unchanged.log' 0
+    Assert-Equal 1 $r.ExitCode 'missing file refused'
+    $r = Invoke-RepoOps $c @('-Operation', 'status', '-CommentFile', $file) '' 0
+    Assert-Equal 1 $r.ExitCode 'not a commit'
+    [System.IO.File]::WriteAllBytes($file, [byte[]](0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2))
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-CommentFile', $file) 'commit-unchanged.log' 0
+    Assert-Equal 1 $r.ExitCode 'a file that is not UTF-8 is refused'
+    [System.IO.File]::WriteAllText($file, "  `r`n")
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-CommentFile', $file) 'commit-unchanged.log' 0
+    Assert-Equal 1 $r.ExitCode 'an empty comment is refused'
+}
+
+Register-Case 'display: a short password is masked by its key, not as a substring' {
+    param($Work)
+    $c = New-RepoCase $Work
+    $r = Invoke-RepoOps $c @('-Operation', 'commit', '-Objects', (N 'catalog'), '-Comment', 'TASK-1: version 2.1', '-RepositoryPassword', '1') 'commit-unchanged.log' 0
+    Assert-Equal 0 $r.ExitCode 'exit code'
+    Assert-Contains $r.Out '-comment "TASK-1: version 2.1"' 'comment intact in Running:'
+    Assert-Contains $r.Out '/ConfigurationRepositoryP"***"' 'password masked by its key'
+    Assert-NotContains $r.Out '/ConfigurationRepositoryP"1"' 'password not shown'
+    Assert-NotContains $r.Out 'TASK-***' 'digits of the comment not masked'
+    Assert-Contains $r.CommandLine '/ConfigurationRepositoryP"1"' 'the platform still gets the password'
 }
 
 Register-Case 'update: success without an operation block means an unbound infobase' {

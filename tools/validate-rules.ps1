@@ -15,8 +15,9 @@
          keep/drop silently loses it on install.
       2. Cross-references - every `content/...` path mentioned anywhere in the
          ruleset resolves to a file that exists, and every relative Markdown link
-         resolves from the file that contains it. A broken reference turns a hard
-         gate into a dangling pointer without any visible error.
+         resolves from the file that contains it and stays inside its content/
+         section. A broken reference turns a hard gate into a dangling pointer
+         without any visible error.
       3. Section anchors - "<file>.md -> Section" references point at a heading
          that exists in the target file. Reported as warnings: the ruleset also
          uses non-heading anchors (section signs, "A.7"), which cannot be
@@ -65,6 +66,10 @@
     Byte ceiling for AGENTS.md. Ratchet it downward as the file shrinks; never
     raise it without a deliberate decision.
 
+.PARAMETER Release
+    Require the standards checkout via -StandardsDir or ONEC_STANDARDS_DIR.
+    Report the Git revision whose standard bodies were checked.
+
 .PARAMETER RuleMaxBytes
     Byte ceiling for one file under content/rules. Above it, split detail into
     a companion rule loaded on its own trigger.
@@ -82,6 +87,9 @@
 .PARAMETER SubagentStartMaxBytes
     Byte ceiling for AGENTS.md + content/rules/subagent-core.md + the largest
     agent prompt - the context every subagent pays before its first action.
+
+.PARAMETER QuickFixSearchMaxBytes
+    Byte ceiling for a quick-fix that first locates the procedure by MCP search.
 
 .PARAMETER SkillDescriptionMaxBytes
     Byte ceiling for one skill description. Hosts list every skill description
@@ -126,7 +134,9 @@ param(
     [int]$SkillDescriptionTotalMaxBytes = 6144,
     [int]$AgentDescriptionTotalMaxBytes = 3072,
     [int]$RuleDescriptionTotalMaxBytes = 11264,
-    [switch]$Strict
+    [switch]$Strict,
+    [switch]$Release,
+    [int]$QuickFixSearchMaxBytes = 81920
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,6 +148,9 @@ $Root = (Resolve-Path -LiteralPath $Root).Path
 # corpus). Resolve the directory once: parameter -> ONEC_STANDARDS_DIR -> a
 # sibling MCP_Docs_new checkout -> none (body and heading checks are skipped).
 if (-not $StandardsDir) { $StandardsDir = $env:ONEC_STANDARDS_DIR }
+if ($Release -and (-not $StandardsDir -or -not (Test-Path -LiteralPath $StandardsDir -PathType Container))) {
+    throw 'Release validation requires an existing standards checkout via -StandardsDir or ONEC_STANDARDS_DIR.'
+}
 if (-not $StandardsDir) {
     $sibling = Join-Path $Root '..\..\MCP_Docs_new\data\corpora\1c-standards\content\standards'
     if (Test-Path -LiteralPath $sibling) { $StandardsDir = (Resolve-Path -LiteralPath $sibling).Path }
@@ -453,6 +466,17 @@ foreach ($file in $scanned) {
             if (-not (Test-Path -LiteralPath $target)) {
                 Add-Problem -Level error -File $file.FullName -Line $lineNo -Message ('broken Markdown link: ' + $m.Groups[1].Value)
             }
+            else {
+                # Each section of content/ is installed under its own directory
+                # (rules go to .cursor/rules, .claude/rules-1c, ...), so a relative link
+                # from one section into another is broken in the project. The
+                # installer rewrites the `content/<section>/...` form.
+                $ownSection = [regex]::Match($file.FullName.Replace('\', '/'), '/content/(rules|skills|agents|commands)/').Groups[1].Value
+                $targetSection = [regex]::Match([IO.Path]::GetFullPath($target).Replace('\', '/'), '/content/(rules|skills|agents|commands)/').Groups[1].Value
+                if ($ownSection -and $targetSection -and $targetSection -ne $ownSection) {
+                    Add-Problem -Level error -File $file.FullName -Line $lineNo -Message ('relative Markdown link leaves content/' + $ownSection + '/ and breaks after installation: ' + $m.Groups[1].Value + ' - write it as `content/<section>/...`')
+                }
+            }
         }
 
         foreach ($m in [regex]::Matches($line, $stdRefPattern)) {
@@ -488,11 +512,9 @@ foreach ($file in $scanned) {
 
         foreach ($m in [regex]::Matches($line, $anchorPattern)) {
             $refFile = $m.Groups[1].Value
-            $section = $m.Groups[2].Value
-            # Nested anchors ("A -> B -> C"): only the first segment is reliably a
-            # heading; deeper ones are often list items (A.7, Gate 3a, section 8).
-            $section = ($section -split $ARROW)[0]
-            $section = ($section -replace $decorationPattern, '').Trim().TrimEnd('.', ',', ';').ToLowerInvariant()
+            $rawAnchor = $m.Groups[2].Value
+            $segments = @($rawAnchor -split $ARROW)
+            $section = ($segments[0] -replace $decorationPattern, '').Trim().TrimEnd('.', ',', ';').ToLowerInvariant()
             if (-not $section) { continue }
 
             # Anchors that are correct but cannot resolve to a heading:
@@ -524,7 +546,83 @@ foreach ($file in $scanned) {
             if (-not $hit) {
                 Add-Problem -Level warning -File $file.FullName -Line $lineNo -Message ("anchor '" + $section + "' not found as a heading in " + $refFile)
             }
+
+            if ($segments.Count -ge 2) {
+                $sub = ($segments[1] -replace $decorationPattern, '').Trim().TrimEnd('.', ',', ';').ToLowerInvariant()
+                $skipSub = (-not $sub) -or ($sub -match '^[a-z]\.\d+$') -or ($sub -match '^\d+$') -or $sub.StartsWith([string][char]0xA7) -or ($sub -match '[<>]')
+                if (-not $skipSub) {
+                    $subHit = $false
+                    foreach ($heading in $headings) {
+                        if ($heading -eq $sub -or $heading.Contains($sub) -or $sub.Contains($heading)) { $subHit = $true; break }
+                    }
+                    if (-not $subHit) {
+                        $targetBody = [System.IO.File]::ReadAllText($targetPath, [System.Text.Encoding]::UTF8).ToLowerInvariant()
+                        if ($targetBody.Contains($sub)) { $subHit = $true }
+                    }
+                    if (-not $subHit) {
+                        Add-Problem -Level warning -File $file.FullName -Line $lineNo -Message ("nested anchor '" + $sub + "' not found in " + $refFile)
+                    }
+                }
+            }
         }
+    }
+}
+
+# --------------------------------------------------------------------------
+# Ruleset hygiene - .dev.env.example key sync, orphan rules, English prose
+# --------------------------------------------------------------------------
+
+$envExamplePath = Join-Path $Root '.dev.env.example'
+if (Test-Path -LiteralPath $envExamplePath) {
+    $envRulesCombined = ''
+    foreach ($rel in @('content/rules/dev-standards-env.md', 'content/rules/dev-standards-env-process.md', 'content/rules/tool-policy.md')) {
+        $p = Join-Path $Root ($rel -replace '/', '\')
+        if (Test-Path -LiteralPath $p) {
+            $envRulesCombined += [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) + "`n"
+        }
+    }
+    $envLines = [System.IO.File]::ReadAllLines($envExamplePath, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $envLines.Count; $i++) {
+        if ($envLines[$i] -match '^#?\s*([A-Z][A-Z0-9_]+)=') {
+            $k = $Matches[1]
+            if ($envRulesCombined -notmatch ('(?<![A-Z0-9_])' + [regex]::Escape($k) + '(?![A-Z0-9_])')) {
+                Add-Problem -Level error -File $envExamplePath -Line ($i + 1) -Message ("env key '" + $k + "' is not documented in dev-standards-env*.md or tool-policy.md")
+            }
+        }
+    }
+}
+
+$scannedText = @{}
+foreach ($sf in $scanned) {
+    $scannedText[$sf.FullName] = [System.IO.File]::ReadAllText($sf.FullName, [System.Text.Encoding]::UTF8)
+}
+foreach ($rf in $ruleFiles) {
+    $stemPat = '(?<![A-Za-z0-9_-])' + [regex]::Escape($rf.BaseName) + '(\.md|(?![A-Za-z0-9_-]))'
+    $refCount = 0
+    foreach ($kv in $scannedText.GetEnumerator()) {
+        if ($kv.Key -eq $rf.FullName) { continue }
+        if ($kv.Value -match $stemPat) { $refCount++; break }
+    }
+    if ($refCount -eq 0) {
+        Add-Problem -Level warning -File $rf.FullName -Line 1 -Message 'orphan rule: no incoming reference from AGENTS.md, rules, agents, commands, skills or docs'
+    }
+}
+
+$openGuillemet = [string][char]0xAB
+$closeGuillemet = [string][char]0xBB
+$guillemetPat = $openGuillemet + '[^' + $closeGuillemet + ']+' + $closeGuillemet
+foreach ($rf in $ruleFiles) {
+    $lines = [System.IO.File]::ReadAllLines($rf.FullName, [System.Text.Encoding]::UTF8)
+    $inFence = $false
+    $cyrProse = 0
+    foreach ($l in $lines) {
+        if ($l -match '^```') { $inFence = -not $inFence; continue }
+        if ($inFence -or $l -match '^\s*(>|#|\|)') { continue }
+        $clean = $l -replace ($BT + '[^' + $BT + ']+' + $BT), '' -replace $guillemetPat, '' -replace '"[^"]+"', ''
+        if (([regex]::Matches($clean, '[\u0400-\u04FF]')).Count -ge 25) { $cyrProse++ }
+    }
+    if ($cyrProse -ge 3) {
+        Add-Problem -Level warning -File $rf.FullName -Line 1 -Message ($cyrProse.ToString() + ' lines of non-quoted Cyrillic prose - content/rules prose is English per AGENTS.md')
     }
 }
 
@@ -554,6 +652,17 @@ $scaffold     = @('Where this standard lives', 'Sections')
 $routedCount  = 0
 if ($standardsDir) {
     Write-Host ('Standards bodies: ' + $standardsDir)
+    if ($Release) {
+        $revision = git -C $standardsDir rev-parse --verify HEAD
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the Git revision of the standards corpus.' }
+        $bodyNames = @(Get-ChildItem -LiteralPath $standardsDir -File -Filter '*.md' | Select-Object -ExpandProperty Name)
+        if ($bodyNames.Count -eq 0) { throw 'The standards corpus contains no Markdown bodies.' }
+        git -C $standardsDir ls-files --error-unmatch -- $bodyNames | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'The standards revision does not track every body being checked.' }
+        $changes = git -C $standardsDir status --porcelain -- '*.md'
+        if ($LASTEXITCODE -ne 0 -or $changes) { throw 'Cannot verify the standards bodies against the recorded Git revision.' }
+        Write-Host ('Standards revision: ' + $revision)
+    }
 }
 else {
     Write-Host 'Standards bodies: not available - body and heading checks skipped (pass -StandardsDir or set ONEC_STANDARDS_DIR)' -ForegroundColor Yellow
@@ -708,6 +817,12 @@ if (Test-Path -LiteralPath $scenarioPath) {
             if ($gateIds.Contains($g)) { $gateUse[$g]++ } else { Add-Problem -Level error -File $scenarioPath -Message ('gate scenarios: scenario ' + $sid + ' names unknown gate ' + $g) }
             if (-not [string]$sc.task) { Add-Problem -Level error -File $scenarioPath -Message ('gate scenarios: scenario ' + $sid + ' has no task') }
             if (-not [string]$sc.criteria) { Add-Problem -Level error -File $scenarioPath -Message ('gate scenarios: scenario ' + $sid + ' has no criteria') }
+            if ($sc.PSObject.Properties['before_native_search']) {
+                $requiredCalls = @($sc.wire | ForEach-Object { [string]$_.server + ':' + [string]$_.tool })
+                if ($requiredCalls -notcontains $sc.before_native_search) {
+                    Add-Problem -Level error -File $scenarioPath -Message ('gate scenarios: ' + $sid + ' before_native_search must name a required wire call')
+                }
+            }
             foreach ($step in @($sc.wire)) {
                 $srv = [string]$step.server
                 $tool = [string]$step.tool
@@ -854,9 +969,19 @@ foreach ($rel in $quickFixFiles) {
     if (Test-Path -LiteralPath $path) { $quickBytes += Get-BudgetBytes $path }
     else { Add-Problem -Level error -File $path -Message 'quick-fix budget: listed file is missing - update $quickFixFiles' }
 }
-Write-Host ('Quick-fix load set: {0:N0} bytes (~{1:N0} tokens), ceiling {2:N0}' -f $quickBytes, [math]::Round($quickBytes / 3.7), $QuickFixMaxBytes)
+Write-Host ('Quick-fix (known target): {0:N0} bytes (~{1:N0} tokens), ceiling {2:N0}' -f $quickBytes, [math]::Round($quickBytes / 3.7), $QuickFixMaxBytes)
 if ($quickBytes -gt $QuickFixMaxBytes) {
     Add-Problem -Level error -File (Join-Path $Root 'content/rules/verification-policy.md') -Message ('quick-fix load set exceeded: ' + $quickBytes + ' bytes > ' + $QuickFixMaxBytes + '. A quick-fix closes on the Quick-fix gate alone; move full-cycle detail back to its owner.')
+}
+
+# Locating a procedure adds the source-discovery rule and the code-search skill.
+$searchBytes = $quickBytes
+foreach ($rel in @('content/rules/mcp-first-search.md', 'content/skills/1c-code-search/SKILL.md')) {
+    $searchBytes += Get-BudgetBytes (Join-Path $Root $rel)
+}
+Write-Host ('Quick-fix (with code search): {0:N0} bytes (~{1:N0} tokens), ceiling {2:N0}' -f $searchBytes, [math]::Round($searchBytes / 3.7), $QuickFixSearchMaxBytes)
+if ($searchBytes -gt $QuickFixSearchMaxBytes) {
+    Add-Problem -Level error -File (Join-Path $Root 'AGENTS.md') -Message ('quick-fix search load set exceeded: ' + $searchBytes + ' bytes > ' + $QuickFixSearchMaxBytes)
 }
 
 $corePath = Join-Path $Root 'content/rules/subagent-core.md'

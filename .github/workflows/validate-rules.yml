@@ -73,6 +73,10 @@ jobs:
         shell: powershell
         run: .\tools\tests\code-owner-setting.ps1
 
+      - name: DSH recommendation
+        shell: powershell
+        run: .\tools\tests\dsh-recommendation.ps1
+
       - name: Optional initial source dump
         shell: powershell
         run: .\tools\tests\initial-source-dump.ps1
@@ -140,6 +144,10 @@ jobs:
         shell: powershell
         run: .\tools\tests\installer-paths-regression.ps1
 
+      - name: Installer update keeps user edits and settings
+        shell: powershell
+        run: .\tools\tests\installer-update-safety.ps1
+
       - name: Preserve OpenCode configs (PowerShell 5.1)
         shell: powershell
         run: .\tools\tests\opencode-config-preservation.ps1
@@ -164,6 +172,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Replay optional native search against rendered graders
+        shell: powershell
+        run: node tools/tests/search-order-regression.mjs "$env:RUNNER_TEMP\gate-evals"
 
       - name: Support-guard hook (Node hook vs PowerShell guard)
         shell: powershell

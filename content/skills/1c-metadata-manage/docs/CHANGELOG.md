@@ -48,6 +48,10 @@ Local deltas re-applied: `.dev.env` `SUPPORT_GUARD` first, fail-closed on an unr
 
 `cf-edit` v1.11 → **v1.12** (support ticket 4e6f4e67, item 4): `add-childObject` always inserted a new entry by name inside its kind group (culture-aware `-gt`), whatever `NEW_OBJECT_POSITION` said. It now resolves the setting as `meta-compile` does — `end` (default) after the last object of the kind, as Configurator; `byName` with the 1C-tree comparator; order-sensitive kinds never sorted. Pinned by `tools/tests/metadata-tools-regression.ps1`.
 
+### Local fix `2026-11-25` — nested scripts run under `pwsh` on Linux / macOS
+
+`cf-edit`, `interface-edit`, `subsystem-compile`, `subsystem-edit`, `xdto-edit`, `meta-edit`, `role-edit` started their sibling validator with the literal `powershell.exe`, which does not exist outside Windows. Under PowerShell Core on another OS they now start the running `pwsh`; on Windows nothing changes. `dump-validate` built the directory of a nested subsystem with a trailing dot, which only Windows tolerates. From PR #38 by mavlenkov (Linux: 95 passed, 2 Windows-only cases skipped). The tools stay unsupported on Linux otherwise (`runtime-selection.md`).
+
 ### Local fix `2026-10-01` — sibling validators are found
 
 The auto-validation of `cf-edit`, `interface-edit`, `subsystem-compile` and `subsystem-edit` looked for the validator at upstream's `..\..\<validator>\scripts\` path, which does not exist in this layout, so it was skipped silently; `xdto-edit` looked for `xdto-decompile` / `xdto-compile` / `xdto-validate` the same way and refused every structural operation. All five now take the sibling script from their own `scripts` directory.
@@ -185,6 +189,10 @@ Full description in section 4 above.
 An extension is the **default answer** when a typical object on vendor support needs a change: support state stays untouched and vendor updates keep flowing. The mutating tools of this skill now enforce that — they refuse to edit a locked object directly and point here. See [support-manage.md](support-manage.md).
 
 ## db-manage.md
+
+### Local fix `2026-11-25` — `db-update -SessionTerminate`
+
+`db-update` v1.31, local: the script could not end open sessions. `-AdditionalV8Arguments '-SessionTerminate','force'` lands at the end of the command line, after `/Out` and `/DumpResult`, where the platform ignores it, so the update failed with the exclusive-lock error whenever any session was open. New `-SessionTerminate disable|prompt|force`: for `1cv8` it is emitted right after `/UpdateDBCfg` and its `-Dynamic…` option (`/UpdateDBCfg -Dynamic+ -SessionTerminate force`, the form `/update1cbase` uses), for `ibcmd` as `--session-terminate=<mode>` (the `config apply` key `/deploy-and-test` uses). Both spellings are also in the owned-key lists, so passing them through the additional-argument parameters is refused with a hint to the new parameter. `/update1cbase` Step 3b still runs Designer directly and is unchanged. Pinned by `tools/tests/db-tools-regression.ps1` (the fake platform records the command line).
 
 ### Upstream sync 2026-11-17 (4fc37e1)
 
